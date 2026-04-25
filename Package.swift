@@ -1,23 +1,13 @@
-//
-//  Package.swift
-//  AIAnalyzer
-//
-//  Created by Johnson Elangbam on 25/04/26.
-//
-// swift-tools-version: 6.3
-// The swift-tools-version declares the minimum version of Swift required to build this package.
-
-
-// swift-tools-version:5.9
+// swift-tools-version:5.7
 import PackageDescription
 
 let package = Package(
     name: "AIAnalyzer",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v12)
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-syntax.git", from: "509.0.0")
+        .package(url: "https://github.com/apple/swift-syntax.git", from: "508.0.0")
     ],
     targets: [
         .executableTarget(
@@ -33,4 +23,3 @@ let package = Package(
         )
     ]
 )
-

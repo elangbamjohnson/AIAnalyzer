@@ -10,7 +10,7 @@ public struct LargeClassRule: Rule {
     public let name = "LargeClass"
     private let threshold: Int
     
-    public init(threshold: Int = 10) {
+    public init(threshold: Int = RuleConstants.largeClassThreshold) {
         self.threshold = threshold
     }
     

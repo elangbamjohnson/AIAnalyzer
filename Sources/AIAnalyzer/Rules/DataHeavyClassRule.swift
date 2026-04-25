@@ -10,7 +10,7 @@ public struct DataHeavyClassRule: Rule {
     public let name = "DataHeavyClass"
     private let threshold: Int
     
-    public init(threshold: Int = 5) {
+    public init(threshold: Int = RuleConstants.dataHeavyClassThreshold) {
         self.threshold = threshold
     }
     
