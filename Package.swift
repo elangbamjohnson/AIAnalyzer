@@ -1,3 +1,9 @@
+//
+//  Package.swift
+//  AIAnalyzer
+//
+//  Created by Johnson Elangbam on 25/04/26.
+//
 // swift-tools-version: 6.3
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
