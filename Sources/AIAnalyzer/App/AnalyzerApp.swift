@@ -1,6 +1,4 @@
 import Foundation
-import SwiftSyntax
-import SwiftParser
 
 @main
 struct AnalyzerApp {
@@ -13,29 +11,16 @@ struct AnalyzerApp {
         let filePath = CommandLine.arguments[1]
         let url = URL(fileURLWithPath: filePath)
         
+        let analyzer = Analyzer(rules: [
+            LargeClassRule(threshold: 3),
+            DataHeavyClassRule(threshold: 1)
+        ])
+        
+        let reporter: Reporter = ConsoleReporter()
+        
         do {
-            let source = try String(contentsOf: url, encoding: .utf8)
-            let sourceFile = Parser.parse(source: source)
-            
-            let visitor = ClassVisitor(viewMode: .all)
-            visitor.walk(sourceFile)
-            
-            let engine = RuleEngine(rules: [
-                LargeClassRule(threshold: 3),
-                DataHeavyClassRule(threshold: 1)
-            ])
-            
-            let issues = engine.analyze(visitor.classes)
-            
-            if issues.isEmpty {
-                print("No issues found in \(filePath).")
-            } else {
-                print("Found \(issues.count) issues in \(filePath):")
-                for issue in issues {
-                    print("[\(issue.severity.rawValue.uppercased())] \(issue.ruleName): \(issue.message)")
-                }
-            }
-            
+            let issues = try analyzer.analyze(fileURL: url)
+            reporter.report(issues: issues, filePath: filePath)
         } catch {
             print("Error: \(error.localizedDescription)")
         }

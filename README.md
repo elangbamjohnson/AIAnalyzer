@@ -11,18 +11,22 @@ The tool aims to help developers maintain code quality by automatically flagging
 - **`ClassInfo`**: Stores metrics for extracted classes (method count, property count, line count).
 - **`Issue` & `Severity`**: Define the structure and importance of found code smells.
 
-### 2. Visitor
+### 2. Core
+- **`Analyzer`**: Orchestrates the analysis process by coordinating between the parser, visitor, and rule engine.
+
+### 3. Visitor
 - **`ClassVisitor`**: Uses `SwiftSyntax` to traverse the Abstract Syntax Tree (AST) and collect data on class declarations.
 
-### 3. Rules
+### 4. Rules
 - **`Rule` Protocol**: A standardized interface for creating new analysis logic.
 - **`RuleEngine`**: Executes a collection of rules against the extracted class data.
-- **Implemented Rules**:
-  - `LargeClassRule`: Flags classes with excessive method counts.
-  - `DataHeavyClassRule`: Identifies classes with too many properties.
 
-### 4. App
-- **`AnalyzerApp`**: The command-line interface entry point that coordinates parsing, analysis, and reporting.
+### 5. Reporting
+- **`Reporter` Protocol**: Interface for reporting discovered issues.
+- **`ConsoleReporter`**: Implementation that outputs results to the standard console.
+
+### 6. App
+- **`AnalyzerApp`**: The CLI entry point that handles user input and initializes the analysis pipeline.
 
 ## Workflow
 1. **Parsing**: Converts Swift source code into a structured Syntax Tree.
