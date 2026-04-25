@@ -16,3 +16,20 @@ class View {
     var age = 27
 }
 
+class MassiveViewModel {
+    var a = 1, b = 2, c = 3
+    
+    func f1() {}
+    func f2() {}
+    func f3() {}
+    func f4() {}
+    func f5() {}
+    func f6() {}
+    func f7() {}
+    func f8() {}
+    func f9() {}
+    func f10() {}
+    func f11() {}
+    func f12() {}
+}
+

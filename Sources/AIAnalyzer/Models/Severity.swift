@@ -7,7 +7,7 @@
 import Foundation
 
 public enum Severity: String, Codable {
-    case info
-    case warning
-    case error
+    case info = "ℹ️"
+    case warning = "⚠️"
+    case critical = "🔴"
 }
