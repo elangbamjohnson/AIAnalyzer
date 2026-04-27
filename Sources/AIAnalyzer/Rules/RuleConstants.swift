@@ -14,4 +14,6 @@ public enum RuleConstants {
     
     /// Default threshold for the maximum number of properties in a class.
     public static let dataHeavyClassThreshold = 5
+    
+    public static let tooManyMethodThreshold = 10
 }

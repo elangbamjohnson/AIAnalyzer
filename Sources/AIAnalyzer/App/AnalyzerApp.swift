@@ -43,11 +43,13 @@ struct AnalyzerApp {
         
         print("📊 Found \(filePaths.count) Swift files\n")
         
-        // Initialize the rule engine with predefined rules and thresholds
+        // Initialize rule engine and reporter
         let engine = RuleEngine(rules: [
             LargeClassRule(threshold: 10),
-            DataHeavyClassRule(threshold: 10)
+            DataHeavyClassRule(threshold: 10),
+            HighMethodDensityRule()
         ])
+        let reporter: Reporter = ConsoleReporter()
         
         // Tracks aggregate metrics for the entire session
         var summary = AnalysisSummary()
@@ -59,91 +61,31 @@ struct AnalyzerApp {
         // Iterate through each discovered Swift file
         for filePath in filePaths {
             do {
-                // Load source code from disk
-                let source = try String(
-                    contentsOf: URL(fileURLWithPath: filePath),
-                    encoding: .utf8
-                )
-                
-                // Parse the source code into an Abstract Syntax Tree (AST)
+                let source = try String(contentsOf: URL(fileURLWithPath: filePath), encoding: .utf8)
                 let sourceFile = Parser.parse(source: source)
                 
-                // Use the visitor to extract class metadata from the AST
                 let visitor = ClassVisitor(viewMode: .all)
                 visitor.walk(sourceFile)
                 
                 let fileName = URL(fileURLWithPath: filePath).lastPathComponent
                 
-                print("\n📄 File: \(fileName)")
-                print(String(repeating: "-", count: 40))
-                
-                // Update aggregate class count
-                summary.totalClasses += visitor.classes.count
-                
-                // Print metrics for each class found in the current file
-                for classInfo in visitor.classes {
-                    print("📦 Class: \(classInfo.name)")
-                    print("   Methods: \(classInfo.methodCount)")
-                    print("   Properties: \(classInfo.propertyCount)")
-                    print("   Lines: \(classInfo.lineCount)\n")
-                }
-                
                 // Evaluate the extracted class data against the analysis rules
                 let issues = engine.analyze(visitor.classes)
                 fileIssueMap[fileName] = issues
                 
-                // Update session summary with newly found issues
+                // Update session summary
+                summary.totalClasses += visitor.classes.count
                 summary.addIssues(issues)
                 
-                // Print issues immediately for the current file
-                for issue in issues {
-                    print("   \(issue.severity.rawValue) \(issue.message)")
-                }
+                // Use reporter for per-file results
+                reporter.report(file: fileName, classes: visitor.classes, issues: issues)
                 
             } catch {
-                print("❌ Error reading file: \(filePath)")
-                print("   \(error)")
+                print("❌ Error reading file: \(filePath)\n   \(error)")
             }
         }
         
-        // Generate and print the "Top Files With Issues" leaderboard
-        let sortedFiles = fileIssueMap.sorted {
-            $0.value.count > $1.value.count
-        }
-        
-        print("\n🚨 Files With Issues (Top 10)")
-        print(String(repeating: "-", count: 40))
-        
-        for (file, issues) in sortedFiles.prefix(10) where !issues.isEmpty {
-            print("📄 \(file)")
-            
-            // Print a subset of issues to avoid excessive console noise
-            for issue in issues.prefix(5) {
-                if let line = issue.line {
-                    print("   \(issue.severity.rawValue) [Line \(line)] \(issue.message)")
-                } else {
-                    print("   \(issue.severity.rawValue) \(issue.message)")
-                }
-            }
-            
-            if issues.count > 5 {
-                print("   ...and \(issues.count - 5) more issues")
-            }
-            print("")
-        }
-
-        // Print final aggregate metrics and health status
-        print("\n" + String(repeating: "=", count: 40))
-        print("📊 Summary")
-        print("Files scanned: \(summary.totalFiles)")
-        print("Classes analyzed: \(summary.totalClasses)")
-        print("Total issues: \(summary.totalIssues)")
-        print("⚠️ Warnings: \(summary.warnings)")
-        print("ℹ️ Info: \(summary.infos)")
-        print("🔴 Critical: \(summary.criticals)")
-        
-        if summary.totalIssues == 0 {
-            print("✅ No issues found. Clean code!")
-        }
+        // Use reporter for final summary
+        reporter.reportSummary(summary, fileIssueMap: fileIssueMap)
     }
 }

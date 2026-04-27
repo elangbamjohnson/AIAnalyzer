@@ -20,18 +20,56 @@ public struct LargeClassRule: Rule {
         self.threshold = threshold
     }
     
-    /// Flags classes that exceed the defined method count threshold.
+    /// Flags classes that exceed context-aware thresholds for methods or lines.
     /// - Parameter classInfo: The class metadata to evaluate.
-    /// - Returns: A warning `Issue` if the class is too large, otherwise `nil`.
+    /// - Returns: An `Issue` if the class is too large, otherwise `nil`.
     public func evaluate(_ classInfo: ClassInfo) -> Issue? {
-        if classInfo.methodCount > threshold {
-            return Issue(
-                ruleName: name,
-                message: "Class \(classInfo.name) has too many methods (\(classInfo.methodCount)).",
-                severity: .warning,
-                line: nil
-            )
+        // Context-aware thresholds
+        let methodThreshold: Int
+        let lineThreshold: Int
+        
+        switch classInfo.type {
+        case .viewController:
+            methodThreshold = 25
+            lineThreshold = 400
+        case .viewModel:
+            methodThreshold = 20
+            lineThreshold = 300
+        case .service:
+            methodThreshold = 15
+            lineThreshold = 250
+        case .model:
+            methodThreshold = 10
+            lineThreshold = 150
+        case .unknown:
+            methodThreshold = threshold
+            lineThreshold = 300
         }
-        return nil
+        
+        let exceedsMethods = classInfo.methodCount > methodThreshold
+        let exceedsLines = classInfo.lineCount > lineThreshold
+        
+        guard exceedsMethods || exceedsLines else {
+            return nil
+        }
+        
+        // Determine severity
+        let severity: Severity = (classInfo.methodCount > methodThreshold * 2 || classInfo.lineCount > lineThreshold * 2) ? .critical : .warning
+        
+        // Build detailed message
+        var reasons: [String] = []
+        if exceedsMethods {
+            reasons.append("\(classInfo.methodCount) methods (limit: \(methodThreshold))")
+        }
+        if exceedsLines {
+            reasons.append("\(classInfo.lineCount) lines (limit: \(lineThreshold))")
+        }
+        
+        return Issue(
+            ruleName: name,
+            message: "Class \(classInfo.name) is too large: \(reasons.joined(separator: ", "))",
+            severity: severity,
+            line: nil
+        )
     }
 }
