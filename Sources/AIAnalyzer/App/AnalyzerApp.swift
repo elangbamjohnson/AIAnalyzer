@@ -42,12 +42,12 @@ struct AnalyzerApp {
         }
         
         print("📊 Found \(filePaths.count) Swift files\n")
-        
         // Initialize rule engine and reporter
         let engine = RuleEngine(rules: [
             LargeClassRule(threshold: 10),
             DataHeavyClassRule(threshold: 10),
-            HighMethodDensityRule()
+            HighMethodDensityRule(),
+            GodObjectRule()
         ])
         let reporter: Reporter = ConsoleReporter()
         

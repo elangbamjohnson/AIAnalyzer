@@ -30,20 +30,20 @@ public struct LargeClassRule: Rule {
         
         switch classInfo.type {
         case .viewController:
-            methodThreshold = 25
-            lineThreshold = 400
+            methodThreshold = RuleConstants.LargeClass.vcMethods
+            lineThreshold = RuleConstants.LargeClass.vcLines
         case .viewModel:
-            methodThreshold = 20
-            lineThreshold = 300
+            methodThreshold = RuleConstants.LargeClass.vmMethods
+            lineThreshold = RuleConstants.LargeClass.vmLines
         case .service:
-            methodThreshold = 15
-            lineThreshold = 250
+            methodThreshold = RuleConstants.LargeClass.serviceMethods
+            lineThreshold = RuleConstants.LargeClass.serviceLines
         case .model:
-            methodThreshold = 10
-            lineThreshold = 150
+            methodThreshold = RuleConstants.LargeClass.modelMethods
+            lineThreshold = RuleConstants.LargeClass.modelLines
         case .unknown:
             methodThreshold = threshold
-            lineThreshold = 300
+            lineThreshold = RuleConstants.LargeClass.defaultLines
         }
         
         let exceedsMethods = classInfo.methodCount > methodThreshold

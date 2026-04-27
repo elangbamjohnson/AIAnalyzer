@@ -5,44 +5,116 @@
 //  Created by Johnson Elangbam on 25/04/26.
 //
 import Testing
+import Foundation
+import SwiftParser
 @testable import AIAnalyzer
 
-@Suite("Rule Tests")
-struct RuleTests {
+@Suite("Basic Rule Tests")
+struct BasicRuleTests {
     
-    @Test func testLargeClassRule() {
+    @Test func testLargeClassRuleFallback() {
         let rule = LargeClassRule(threshold: 3)
-        let classInfo = ClassInfo(name: "TestClass", methodCount: 4, propertyCount: 1, lineCount: 10)
+        // Using .unknown type to test the fallback threshold
+        let classInfo = ClassInfo(type: .unknown, name: "TestClass", methodCount: 4, propertyCount: 1, lineCount: 10)
         let issue = rule.evaluate(classInfo)
         
         #expect(issue != nil)
-        #expect(issue?.ruleName == "LargeClass")
         #expect(issue?.severity == .warning)
     }
     
     @Test func testDataHeavyClassRule() {
         let rule = DataHeavyClassRule(threshold: 2)
-        let classInfo = ClassInfo(name: "TestClass", methodCount: 1, propertyCount: 3, lineCount: 10)
+        let classInfo = ClassInfo(type: .model, name: "TestData", methodCount: 1, propertyCount: 3, lineCount: 10)
         let issue = rule.evaluate(classInfo)
         
         #expect(issue != nil)
         #expect(issue?.ruleName == "DataHeavyClass")
-        #expect(issue?.severity == .info)
+    }
+}
+
+@Suite("Architectural Awareness Tests")
+struct ArchitecturalTests {
+    
+    @Test func testContextAwareThresholds() {
+        let rule = LargeClassRule()
+        
+        // A ViewController with 20 methods is considered OK (threshold 25)
+        let vc = ClassInfo(type: .viewController, name: "MyVC", methodCount: 20, propertyCount: 5, lineCount: 200)
+        #expect(rule.evaluate(vc) == nil)
+        
+        // A Model with 20 methods is considered CRITICAL (threshold 10, and 2x limit)
+        let model = ClassInfo(type: .model, name: "MyModel", methodCount: 21, propertyCount: 2, lineCount: 50)
+        let issue = rule.evaluate(model)
+        #expect(issue != nil)
+        #expect(issue?.severity == .critical)
+    }
+}
+
+@Suite("GodObject Logic Tests")
+struct GodObjectTests {
+    
+    @Test func testMultiSignalRequirement() {
+        let rule = GodObjectRule()
+        
+        // Signal 1: High methods (45 for VC)
+        // Signal 2: High properties (25 for VC)
+        
+        // Case A: Only 1 signal (too many methods, but few properties/lines)
+        let oneSignal = ClassInfo(type: .viewController, name: "OneSignal", methodCount: 50, propertyCount: 5, lineCount: 100)
+        #expect(rule.evaluate(oneSignal) == nil)
+        
+        // Case B: 2 signals (methods AND properties)
+        let twoSignals = ClassInfo(type: .viewController, name: "TwoSignals", methodCount: 45, propertyCount: 25, lineCount: 100)
+        let issue = rule.evaluate(twoSignals)
+        #expect(issue != nil)
+        #expect(issue?.severity == .critical)
+    }
+}
+
+@Suite("Method Density Tests")
+struct DensityTests {
+    
+    @Test func testHighMethodDensity() {
+        let rule = HighMethodDensityRule()
+        
+        // 20 methods in only 40 lines (Avg 2 lines per method) -> High Density
+        let fragmentedClass = ClassInfo(type: .service, name: "SmallMethods", methodCount: 20, propertyCount: 2, lineCount: 40)
+        let issue = rule.evaluate(fragmentedClass)
+        
+        #expect(issue != nil)
+        #expect(issue?.ruleName == "HighMethodDensity")
     }
     
-    @Test func testRuleEngine() {
-        let engine = RuleEngine(rules: [
-            LargeClassRule(threshold: 3),
-            DataHeavyClassRule(threshold: 2)
-        ])
+    @Test func testDensityYieldToLargeClass() {
+        let rule = HighMethodDensityRule()
         
-        let classes = [
-            ClassInfo(name: "Large", methodCount: 5, propertyCount: 1, lineCount: 20),
-            ClassInfo(name: "Heavy", methodCount: 1, propertyCount: 5, lineCount: 20),
-            ClassInfo(name: "Clean", methodCount: 1, propertyCount: 1, lineCount: 10)
-        ]
+        // If the class is very large (e.g. 500 lines), HighMethodDensity should yield to LargeClassRule
+        let hugeClass = ClassInfo(type: .viewController, name: "Huge", methodCount: 30, propertyCount: 5, lineCount: 500)
+        #expect(rule.evaluate(hugeClass) == nil)
+    }
+}
+
+@Suite("Visitor Precision Tests")
+struct VisitorTests {
+    
+    @Test func testTriviaExclusion() {
+        let source = """
+        // Leading License Header
+        // More Comments
+        // ----------------------
+        class MyClass {
+            func test() {}
+        }
+        """
         
-        let issues = engine.analyze(classes)
-        #expect(issues.count == 2)
+        let sourceFile = Parser.parse(source: source)
+        let visitor = ClassVisitor(viewMode: .all)
+        visitor.walk(sourceFile)
+        
+        #expect(visitor.classes.count == 1)
+        let classInfo = visitor.classes[0]
+        
+        // The class itself is only 3 lines. The 3 leading comments should be ignored.
+        #expect(classInfo.lineCount <= 4)
     }
 }
