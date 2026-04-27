@@ -29,11 +29,27 @@ public class ClassVisitor: SyntaxVisitor {
             member.decl.as(VariableDeclSyntax.self)
         }.flatMap { $0.bindings }.count
         
-        // Estimate the number of lines in the class declaration
-        let lineCount = node.description.components(separatedBy: .newlines).count
+        // Estimate the number of lines, excluding leading trivia (license headers, etc.)
+        let lineCount = node.withoutLeadingTrivia().description.components(separatedBy: CharacterSet.newlines).count
+        
+        // Determine the class type based on naming conventions
+        let nameLower = className.lowercased()
+        let type: ClassInfo.ClassType
+        if nameLower.contains("viewcontroller") {
+            type = .viewController
+        } else if nameLower.contains("viewmodel") {
+            type = .viewModel
+        } else if nameLower.contains("service") || nameLower.contains("manager") {
+            type = .service
+        } else if nameLower.contains("model") {
+            type = .model
+        } else {
+            type = .unknown
+        }
         
         // Store the collected metrics
         let info = ClassInfo(
+            type: type,
             name: className,
             methodCount: methods.count,
             propertyCount: properties,
