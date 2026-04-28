@@ -20,11 +20,13 @@ struct FileScanner {
         "Build",
         "Carthage"
     ]
-    
-    static func getSwiftFiles(in directory: String) -> [String] {
+    static func getSwiftFiles(in directory: String, ignoring: [String]?) -> [String] {
         
         let fileManager = FileManager.default
         var swiftFiles: [String] = []
+        
+        // Merge default ignored directories with user-provided ones
+        let allIgnored = ignoredDirectories.union(Set(ignoring ?? []))
         
         guard let enumerator = fileManager.enumerator(
             at: URL(fileURLWithPath: directory),
@@ -39,7 +41,7 @@ struct FileScanner {
             let path = fileURL.path
             
             // 🔴 Skip ignored directories and their contents
-            if shouldIgnore(path: path) {
+            if shouldIgnore(path: path, ignoredList: allIgnored) {
                 enumerator.skipDescendants()
                 continue
             }
@@ -53,9 +55,9 @@ struct FileScanner {
         return swiftFiles
     }
     
-    private static func shouldIgnore(path: String) -> Bool {
+    private static func shouldIgnore(path: String, ignoredList: Set<String>) -> Bool {
         let components = URL(fileURLWithPath: path).pathComponents
         // If any component of the path is in our ignore list, skip it
-        return !Set(components).isDisjoint(with: ignoredDirectories)
+        return !Set(components).isDisjoint(with: ignoredList)
     }
 }
