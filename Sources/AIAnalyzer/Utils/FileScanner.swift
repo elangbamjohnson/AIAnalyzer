@@ -10,23 +10,54 @@ import Foundation
 /// A utility for recursively discovering Swift source files within a directory.
 struct FileScanner {
     
-    /// Scans the specified directory and returns paths to all files with a `.swift` extension.
-    /// - Parameter directory: The root directory path to start scanning from.
-    /// - Returns: An array of full file paths to discovered Swift files.
+/// A utility for recursively discovering Swift source files within a directory.
+struct FileScanner {
+    
+    private static let ignoredDirectories: Set<String> = [
+        ".build",
+        ".git",
+        ".swiftpm",
+        "DerivedData",
+        "Pods",
+        "Build",
+        "Carthage"
+    ]
+    
     static func getSwiftFiles(in directory: String) -> [String] {
+        
         let fileManager = FileManager.default
         var swiftFiles: [String] = []
         
-        // Use an enumerator to recursively walk the directory tree
-        if let enumerator = fileManager.enumerator(atPath: directory) {
-            for case let file as String in enumerator {
-                if file.hasSuffix(".swift") {
-                    let fullPath = (directory as NSString).appendingPathComponent(file)
-                    swiftFiles.append(fullPath)
-                }
+        guard let enumerator = fileManager.enumerator(
+            at: URL(fileURLWithPath: directory),
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        
+        for case let fileURL as URL in enumerator {
+            
+            let path = fileURL.path
+            
+            // 🔴 Skip ignored directories and their contents
+            if shouldIgnore(path: path) {
+                enumerator.skipDescendants()
+                continue
+            }
+            
+            // ✅ Only collect Swift files
+            if path.hasSuffix(".swift") {
+                swiftFiles.append(path)
             }
         }
         
         return swiftFiles
+    }
+    
+    private static func shouldIgnore(path: String) -> Bool {
+        let components = URL(fileURLWithPath: path).pathComponents
+        // If any component of the path is in our ignore list, skip it
+        return !Set(components).isDisjoint(with: ignoredDirectories)
     }
 }
