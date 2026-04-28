@@ -7,8 +7,6 @@
 
 import Foundation
 
-/// A utility for recursively discovering Swift source files within a directory.
-struct FileScanner {
     
 /// A utility for recursively discovering Swift source files within a directory.
 struct FileScanner {
