@@ -204,3 +204,33 @@ struct InputValidationTests {
         #expect(error == nil)
     }
 }
+
+@Suite("Rule Engine Dedup Tests")
+struct RuleEngineDedupTests {
+
+    @Test func testGodObjectSuppressesRedundantStructuralIssues() {
+        let engine = RuleEngine(
+            rules: [
+                LargeClassRule(),
+                DataHeavyClassRule(),
+                GodObjectRule()
+            ]
+        )
+
+        let oversizedModel = ClassInfo(
+            type: .model,
+            name: "MonsterModel",
+            methodCount: 30,
+            propertyCount: 25,
+            lineCount: 400
+        )
+
+        let issues = engine.analyze([oversizedModel])
+        let ruleNames = Set(issues.map(\.ruleName))
+
+        #expect(ruleNames.contains("GodObject"))
+        #expect(!ruleNames.contains("LargeClass"))
+        #expect(!ruleNames.contains("DataHeavyClass"))
+        #expect(issues.count == 1)
+    }
+}

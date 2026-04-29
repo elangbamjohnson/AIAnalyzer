@@ -77,4 +77,3 @@ class MonsterModel {
     func step16() {}
     func step17() {}
 }
-
