@@ -14,6 +14,7 @@ public struct AnalyzerConfig: Codable {
         public var largeClass: RuleToggle?
         public var highMethodDensity: RuleToggle?
         public var godObject: RuleToggle?
+        public var dataHeavyClass: RuleToggle?
     }
     
     public struct RuleToggle: Codable {

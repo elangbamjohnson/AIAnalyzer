@@ -16,6 +16,10 @@
         },
         "godObject": {
             "enabled": true
+        },
+        "dataHeavyClass": {
+            "enabled": true,
+            "threshold": 5
         }
     }
 }

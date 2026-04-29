@@ -70,6 +70,11 @@ struct AnalyzerApp {
         if config.rules?.godObject?.enabled == true {
             rules.append(GodObjectRule())
         }
+
+        if config.rules?.dataHeavyClass?.enabled == true {
+            let threshold = config.rules?.dataHeavyClass?.threshold ?? RuleConstants.dataHeavyClassThreshold
+            rules.append(DataHeavyClassRule(threshold: threshold))
+        }
         
         let engine = RuleEngine(rules: rules)
         let reporter: Reporter = ConsoleReporter()
