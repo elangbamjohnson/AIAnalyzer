@@ -66,6 +66,14 @@ class ConfigLoader {
                 mergedRules.godObject = current
             }
 
+            // dataHeavyClass
+            if let userDataHeavy = userRules.dataHeavyClass {
+                var current = mergedRules.dataHeavyClass ?? AnalyzerConfig.RuleToggle()
+                if let enabled = userDataHeavy.enabled { current.enabled = enabled }
+                if let threshold = userDataHeavy.threshold { current.threshold = threshold }
+                mergedRules.dataHeavyClass = current
+            }
+
             config.rules = mergedRules
         }
         

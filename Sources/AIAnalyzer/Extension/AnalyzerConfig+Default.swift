@@ -25,6 +25,10 @@ extension AnalyzerConfig {
                 godObject: RuleToggle(
                     enabled: true,
                     threshold: nil
+                ),
+                dataHeavyClass: RuleToggle(
+                    enabled: true,
+                    threshold: RuleConstants.dataHeavyClassThreshold
                 )
             )
         )
