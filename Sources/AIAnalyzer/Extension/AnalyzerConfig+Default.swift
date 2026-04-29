@@ -11,7 +11,7 @@ extension AnalyzerConfig {
         return AnalyzerConfig(
             ignoreDirectories: [
                 ".build", ".git", ".swiftpm",
-                "DerivedData", "Pods", "Carthage"
+                "DerivedData", "Pods", "Build", "Carthage"
             ],
             rules: RuleConfig(
                 largeClass: RuleToggle(

@@ -10,23 +10,15 @@ import Foundation
     
 /// A utility for recursively discovering Swift source files within a directory.
 struct FileScanner {
-    
-    private static let ignoredDirectories: Set<String> = [
-        ".build",
-        ".git",
-        ".swiftpm",
-        "DerivedData",
-        "Pods",
-        "Build",
-        "Carthage"
-    ]
+
     static func getSwiftFiles(in directory: String, ignoring: [String]?) -> [String] {
         
         let fileManager = FileManager.default
         var swiftFiles: [String] = []
         
-        // Merge default ignored directories with user-provided ones
-        let allIgnored = ignoredDirectories.union(Set(ignoring ?? []))
+        // Use config defaults as the single source of truth.
+        let defaultIgnored = Set(AnalyzerConfig.default.ignoreDirectories ?? [])
+        let allIgnored = defaultIgnored.union(Set(ignoring ?? []))
         
         guard let enumerator = fileManager.enumerator(
             at: URL(fileURLWithPath: directory),
