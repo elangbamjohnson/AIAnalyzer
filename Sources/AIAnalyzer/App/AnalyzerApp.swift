@@ -28,6 +28,14 @@ struct AnalyzerApp {
             print("❌ Path does not exist")
             exit(1)
         }
+
+        if let validationError = InputPathValidator.singleFileExtensionError(
+            for: fullPath,
+            isDirectory: isDirectory.boolValue
+        ) {
+            print(validationError)
+            exit(1)
+        }
         
         // 2. Determine root for config
         let rootPath = isDirectory.boolValue

@@ -118,3 +118,31 @@ struct VisitorTests {
         #expect(classInfo.lineCount <= 4)
     }
 }
+
+@Suite("Input Validation Tests")
+struct InputValidationTests {
+
+    @Test func testAllowsSwiftSingleFile() {
+        let error = InputPathValidator.singleFileExtensionError(
+            for: "/tmp/MyFile.swift",
+            isDirectory: false
+        )
+        #expect(error == nil)
+    }
+
+    @Test func testRejectsNonSwiftSingleFile() {
+        let error = InputPathValidator.singleFileExtensionError(
+            for: "/tmp/Notes.txt",
+            isDirectory: false
+        )
+        #expect(error == "❌ Single-file input must be a .swift file")
+    }
+
+    @Test func testSkipsExtensionValidationForDirectories() {
+        let error = InputPathValidator.singleFileExtensionError(
+            for: "/tmp/some-folder",
+            isDirectory: true
+        )
+        #expect(error == nil)
+    }
+}
