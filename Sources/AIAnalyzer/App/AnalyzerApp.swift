@@ -12,7 +12,7 @@ import SwiftParser
 struct AnalyzerApp {
     /// Orchestrates the entire analysis lifecycle: CLI input parsing, file discovery, 
     /// syntax visitation, rule evaluation, and final reporting.
-    static func main() {
+    static func main() async {
         
         // Validate that a file or folder path was provided as a command-line argument
         guard CommandLine.arguments.count > 1 else {
@@ -82,7 +82,7 @@ struct AnalyzerApp {
                 reporter.report(file: fileName, classes: visitor.classes, issues: issues)
 
                 if let suggester = buildAISuggester(configuration: aiConfiguration) {
-                    let suggestions = suggester.generateSuggestions(
+                    let suggestions = await suggester.generateSuggestions(
                         issues: issues,
                         classes: visitor.classes,
                         sourceCode: source

@@ -26,12 +26,6 @@ public struct GeminiProvider: AIProvider {
     /// The model name to use (e.g., "gemini-1.5-flash").
     private let model: String
     
-    /// The base URL for the Gemini API.
-    private let endpointBase = "https://generativelanguage.googleapis.com/v1beta/models"
-    
-    /// The maximum number of retry attempts for failed requests.
-    private let maxRetryAttempts = 3
-
     /// Initializes a new Gemini provider.
     /// - Parameters:
     ///   - apiKey: The service API key.
@@ -45,10 +39,10 @@ public struct GeminiProvider: AIProvider {
     /// - Parameter context: The analysis context.
     /// - Returns: An `AISuggestion` populated with the API response.
     /// - Throws: `AIProviderError` on failure.
-    public func suggest(for context: AIRequestContext) throws -> AISuggestion {
+    public func suggest(for context: AIRequestContext) async throws -> AISuggestion {
         let className = context.classInfo?.name ?? "UnknownClass"
         let prompt = buildPrompt(context: context, className: className)
-        let responseText = try callGemini(prompt: prompt)
+        let responseText = try await callGemini(prompt: prompt)
 
         return AISuggestion(
             ruleName: context.issue.ruleName,
@@ -88,8 +82,15 @@ public struct GeminiProvider: AIProvider {
     /// - Parameter prompt: The prompt to send.
     /// - Returns: The text response from the model.
     /// - Throws: `AIProviderError`.
-    private func callGemini(prompt: String) throws -> String {
-        guard let url = URL(string: "\(endpointBase)/\(model):generateContent?key=\(apiKey)") else {
+    private func callGemini(prompt: String) async throws -> String {
+        let endpoint = "\(AIConstants.Gemini.endpointBase)/\(model):generateContent?key=\(apiKey)"
+        
+        // Debug: Print the endpoint URL (masking the API key for security)
+        let maskedKey = apiKey.prefix(4) + "..." + apiKey.suffix(4)
+        let debugEndpoint = "\(AIConstants.Gemini.endpointBase)/\(model):generateContent?key=\(maskedKey)"
+        print("🌐 Requesting AI suggestion from: \(debugEndpoint)")
+
+        guard let url = URL(string: endpoint) else {
             throw AIProviderError.invalidConfiguration("Invalid Gemini URL")
         }
 
@@ -109,15 +110,16 @@ public struct GeminiProvider: AIProvider {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         var lastError: AIProviderError = .invalidResponse
-        for attempt in 1...maxRetryAttempts {
+        let maxAttempts = AIConstants.Gemini.defaultMaxRetryAttempts
+        for attempt in 1...maxAttempts {
             do {
-                let data = try performRequest(request)
+                let data = try await performRequest(request)
                 return try parseText(from: data)
             } catch let error as AIProviderError {
                 lastError = error
-                if shouldRetry(error: error), attempt < maxRetryAttempts {
+                if shouldRetry(error: error), attempt < maxAttempts {
                     let backoffSeconds = pow(2.0, Double(attempt - 1))
-                    Thread.sleep(forTimeInterval: backoffSeconds)
+                    try? await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
                     continue
                 }
                 throw error
@@ -127,45 +129,28 @@ public struct GeminiProvider: AIProvider {
         throw lastError
     }
 
-    /// Performs a synchronous network request using `URLSession` and a semaphore.
+    /// Performs an asynchronous network request using `URLSession.shared.data(for:)`.
     /// - Parameter request: The URL request.
     /// - Returns: The raw data from the response.
     /// - Throws: `AIProviderError`.
-    private func performRequest(_ request: URLRequest) throws -> Data {
-        let semaphore = DispatchSemaphore(value: 0)
-        var resultData: Data?
-        var resultError: Error?
-        var statusCode: Int?
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            resultData = data
-            resultError = error
-            statusCode = (response as? HTTPURLResponse)?.statusCode
-            semaphore.signal()
-        }.resume()
-
-        let waitResult = semaphore.wait(timeout: .now() + 30)
-        guard waitResult == .success else {
-            throw AIProviderError.timeout
-        }
-
-        if let error = resultError {
+    private func performRequest(_ request: URLRequest) async throws -> Data {
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            if let code = (response as? HTTPURLResponse)?.statusCode, !(200...299).contains(code) {
+                let bodyText = String(data: data, encoding: .utf8) ?? "<empty>"
+                throw AIProviderError.requestFailed("HTTP \(code): \(bodyText)")
+            }
+            
+            return data
+        } catch let error as AIProviderError {
+            throw error
+        } catch {
             if let urlError = error as? URLError {
                 throw AIProviderError.requestFailed("URL_ERROR \(urlError.code.rawValue): \(urlError.localizedDescription)")
             }
             throw AIProviderError.requestFailed(error.localizedDescription)
         }
-
-        if let code = statusCode, !(200...299).contains(code) {
-            let bodyText = resultData.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty>"
-            throw AIProviderError.requestFailed("HTTP \(code): \(bodyText)")
-        }
-
-        guard let data = resultData else {
-            throw AIProviderError.invalidResponse
-        }
-
-        return data
     }
 
     /// Extracts the text content from the Gemini API JSON response.

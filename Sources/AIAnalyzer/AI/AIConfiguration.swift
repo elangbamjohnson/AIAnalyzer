@@ -72,8 +72,8 @@ public struct AIConfiguration {
         let provider = env["AI_PROVIDER"] ?? "gemini"
         let model = env["AI_MODEL"] ?? "gemini-3-flash-preview"
         let apiKey = env["GEMINI_API_KEY"]
-        let maxSuggestions = Int(env["AI_MAX_SUGGESTIONS"] ?? "") ?? 5
-        let snippetLineLimit = Int(env["AI_SNIPPET_LINES"] ?? "") ?? 120
+        let maxSuggestions = Int(env["AI_MAX_SUGGESTIONS"] ?? "") ?? AIConstants.Defaults.maxSuggestions
+        let snippetLineLimit = Int(env["AI_SNIPPET_LINES"] ?? "") ?? AIConstants.Defaults.snippetLineLimit
 
         return AIConfiguration(
             enabled: enabled,
@@ -84,4 +84,5 @@ public struct AIConfiguration {
             snippetLineLimit: snippetLineLimit
         )
     }
+
 }

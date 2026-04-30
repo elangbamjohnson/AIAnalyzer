@@ -50,7 +50,7 @@ public struct AISuggester {
         issues: [Issue],
         classes: [ClassInfo],
         sourceCode: String
-    ) -> [AISuggestion] {
+    ) async -> [AISuggestion] {
         let filtered = issues.filter { $0.severity == .warning || $0.severity == .critical }
         let targetIssues = highestSeverityIssuePerClass(from: filtered, classes: classes)
             .prefix(maxSuggestions)
@@ -65,8 +65,8 @@ public struct AISuggester {
             let requestLabel = "\(issue.ruleName) (\(className))"
 
             do {
-                let suggestion = try withSpinner(message: "⏳ Fetching AI suggestion for \(requestLabel)") {
-                    try provider.suggest(for: context)
+                let suggestion = try await withSpinner(message: "⏳ Fetching AI suggestion for \(requestLabel)") {
+                    try await provider.suggest(for: context)
                 }
                 results.append(suggestion)
                 print("✅ AI suggestion ready for \(requestLabel)")
@@ -143,38 +143,28 @@ public struct AISuggester {
     ///   - message: The message to display alongside the spinner.
     ///   - operation: The throwing closure to execute.
     /// - Returns: The result of the operation.
-    private func withSpinner<T>(message: String, operation: () throws -> T) throws -> T {
+    private func withSpinner<T>(message: String, operation: () async throws -> T) async throws -> T {
         let frames = ["⏳", "⌛"]
-        let stateQueue = DispatchQueue(label: "aianalyzer.spinner.state")
-        let spinnerGroup = DispatchGroup()
-        var shouldStop = false
-
-        spinnerGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
+        let spinnerTask = Task {
             var index = 0
-            while true {
-                let stop = stateQueue.sync { shouldStop }
-                if stop {
-                    break
-                }
+            while !Task.isCancelled {
                 let frame = frames[index % frames.count]
                 print("\r\(frame) \(message)", terminator: "")
                 fflush(stdout)
                 index += 1
-                Thread.sleep(forTimeInterval: 0.2)
+                try? await Task.sleep(nanoseconds: 200_000_000)
             }
-            spinnerGroup.leave()
         }
 
         do {
-            let value = try operation()
-            stateQueue.sync { shouldStop = true }
-            spinnerGroup.wait()
+            let value = try await operation()
+            spinnerTask.cancel()
+            _ = await spinnerTask.result
             print("\r✅ \(message)")
             return value
         } catch {
-            stateQueue.sync { shouldStop = true }
-            spinnerGroup.wait()
+            spinnerTask.cancel()
+            _ = await spinnerTask.result
             print("\r❌ \(message)")
             throw error
         }

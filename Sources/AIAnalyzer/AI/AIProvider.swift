@@ -46,7 +46,7 @@ public protocol AIProvider {
     /// - Parameter context: The issue and source code details.
     /// - Returns: An `AISuggestion` containing the AI's response.
     /// - Throws: An `AIProviderError` if the request fails.
-    func suggest(for context: AIRequestContext) throws -> AISuggestion
+    func suggest(for context: AIRequestContext) async throws -> AISuggestion
 }
 
 /// `AIProviderError` encapsulates the various failure modes that can occur during

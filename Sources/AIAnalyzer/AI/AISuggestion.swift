@@ -17,13 +17,13 @@ import Foundation
 ///
 /// This object is consumed by the `AISuggestionFormatter` to produce user-friendly console output.
 public struct AISuggestion {
-    /// The name of the rule that was violated.
+    /// The name of the rule that was violated.(e.g. GodObjectRule)
     public let ruleName: String
     
     /// The name of the class where the violation occurred.
     public let className: String
     
-    /// The severity of the original finding.
+    /// The severity of the original finding.(warning, Critical)
     public let severity: Severity
     
     /// A short diagnosis provided by the AI.
