@@ -128,11 +128,25 @@ struct AnalyzerApp {
         }
 
         let verboseAI = (ProcessInfo.processInfo.environment["AI_VERBOSE"] ?? "false").lowercased() == "true"
+        let typewriterDelayMs = Int(ProcessInfo.processInfo.environment["AI_TYPEWRITER_MS"] ?? "") ?? 8
         print("🤖 AI Suggestions for \(file)")
         print(String(repeating: "-", count: 40))
         for suggestion in suggestions {
-            print(AISuggestionFormatter.format(suggestion, verbose: verboseAI))
+            let formatted = AISuggestionFormatter.format(suggestion, verbose: verboseAI)
+            printWithTypewriterEffect(formatted, delayMs: typewriterDelayMs)
             print(String(repeating: "-", count: 40))
         }
+    }
+
+    private static func printWithTypewriterEffect(_ text: String, delayMs: Int) {
+        let safeDelay = max(0, delayMs)
+        for character in text {
+            print(String(character), terminator: "")
+            fflush(stdout)
+            if safeDelay > 0 {
+                Thread.sleep(forTimeInterval: Double(safeDelay) / 1000.0)
+            }
+        }
+        print("")
     }
 }

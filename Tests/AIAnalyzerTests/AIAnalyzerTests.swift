@@ -133,7 +133,7 @@ private struct MockAIProvider: AIProvider {
 
 @Suite("AI Suggestion Tests")
 struct AISuggesterTests {
-    @Test func testGeneratesHighestSeveritySuggestionPerClassOnly() {
+    @Test func testGeneratesHighestSeveritySuggestionPerClassOnly() async {
         let suggester = AISuggester(provider: MockAIProvider(), maxSuggestions: 10, snippetLineLimit: 20)
         let classes = [ClassInfo(type: .model, name: "Demo", methodCount: 1, propertyCount: 1, lineCount: 10)]
         let issues = [
@@ -142,7 +142,7 @@ struct AISuggesterTests {
             Issue(ruleName: "CriticalRule", message: "Class Demo critical", severity: .critical)
         ]
 
-        let suggestions = suggester.generateSuggestions(
+        let suggestions = await suggester.generateSuggestions(
             issues: issues,
             classes: classes,
             sourceCode: "class Demo {}"
@@ -153,7 +153,7 @@ struct AISuggesterTests {
         #expect(suggestions.map(\.ruleName).contains("CriticalRule"))
     }
 
-    @Test func testGeneratesPerClassSuggestionsAcrossDifferentClasses() {
+    @Test func testGeneratesPerClassSuggestionsAcrossDifferentClasses() async {
         let suggester = AISuggester(provider: MockAIProvider(), maxSuggestions: 10, snippetLineLimit: 20)
         let classes = [
             ClassInfo(type: .model, name: "Demo", methodCount: 1, propertyCount: 1, lineCount: 10),
@@ -165,7 +165,7 @@ struct AISuggesterTests {
             Issue(ruleName: "WorkerWarn", message: "Class Worker warning", severity: .warning)
         ]
 
-        let suggestions = suggester.generateSuggestions(
+        let suggestions = await suggester.generateSuggestions(
             issues: issues,
             classes: classes,
             sourceCode: "class Demo {} class Worker {}"
