@@ -120,7 +120,7 @@ struct VisitorTests {
 }
 
 private struct MockAIProvider: AIProvider {
-    func suggest(for context: AIRequestContext) throws -> AISuggestion {
+    func suggest(for context: AIRequestContext) async throws -> AISuggestion {
         AISuggestion(
             ruleName: context.issue.ruleName,
             className: context.classInfo?.name ?? "UnknownClass",
@@ -174,5 +174,63 @@ struct AISuggesterTests {
         #expect(suggestions.count == 2)
         #expect(suggestions.map(\.ruleName).contains("DemoCritical"))
         #expect(suggestions.map(\.ruleName).contains("WorkerWarn"))
+    }
+}
+
+@Suite("Input Validation Tests")
+struct InputValidationTests {
+
+    @Test func testAllowsSwiftSingleFile() {
+        let error = InputPathValidator.singleFileExtensionError(
+            for: "/tmp/MyFile.swift",
+            isDirectory: false
+        )
+        #expect(error == nil)
+    }
+
+    @Test func testRejectsNonSwiftSingleFile() {
+        let error = InputPathValidator.singleFileExtensionError(
+            for: "/tmp/Notes.txt",
+            isDirectory: false
+        )
+        #expect(error == "❌ Single-file input must be a .swift file")
+    }
+
+    @Test func testSkipsExtensionValidationForDirectories() {
+        let error = InputPathValidator.singleFileExtensionError(
+            for: "/tmp/some-folder",
+            isDirectory: true
+        )
+        #expect(error == nil)
+    }
+}
+
+@Suite("Rule Engine Dedup Tests")
+struct RuleEngineDedupTests {
+
+    @Test func testGodObjectSuppressesRedundantStructuralIssues() {
+        let engine = RuleEngine(
+            rules: [
+                LargeClassRule(),
+                DataHeavyClassRule(),
+                GodObjectRule()
+            ]
+        )
+
+        let oversizedModel = ClassInfo(
+            type: .model,
+            name: "MonsterModel",
+            methodCount: 30,
+            propertyCount: 25,
+            lineCount: 400
+        )
+
+        let issues = engine.analyze([oversizedModel])
+        let ruleNames = Set(issues.map(\.ruleName))
+
+        #expect(ruleNames.contains("GodObject"))
+        #expect(!ruleNames.contains("LargeClass"))
+        #expect(!ruleNames.contains("DataHeavyClass"))
+        #expect(issues.count == 1)
     }
 }

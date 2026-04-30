@@ -1,0 +1,25 @@
+{
+    "ignoreDirectories": [
+        "TestSandbox",
+        "Generated",
+        "Builds",
+        "Pods"
+    ],
+    "rules": {
+        "largeClass": {
+            "enabled": true,
+            "threshold": 15
+        },
+        "highMethodDensity": {
+            "enabled": true,
+            "threshold": 8
+        },
+        "godObject": {
+            "enabled": true
+        },
+        "dataHeavyClass": {
+            "enabled": true,
+            "threshold": 5
+        }
+    }
+}
