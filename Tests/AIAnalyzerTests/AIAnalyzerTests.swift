@@ -118,3 +118,61 @@ struct VisitorTests {
         #expect(classInfo.lineCount <= 4)
     }
 }
+
+private struct MockAIProvider: AIProvider {
+    func suggest(for context: AIRequestContext) throws -> AISuggestion {
+        AISuggestion(
+            ruleName: context.issue.ruleName,
+            className: context.classInfo?.name ?? "UnknownClass",
+            severity: context.issue.severity,
+            diagnosis: "mock diagnosis",
+            suggestedRefactor: "mock refactor"
+        )
+    }
+}
+
+@Suite("AI Suggestion Tests")
+struct AISuggesterTests {
+    @Test func testGeneratesHighestSeveritySuggestionPerClassOnly() async {
+        let suggester = AISuggester(provider: MockAIProvider(), maxSuggestions: 10, snippetLineLimit: 20)
+        let classes = [ClassInfo(type: .model, name: "Demo", methodCount: 1, propertyCount: 1, lineCount: 10)]
+        let issues = [
+            Issue(ruleName: "InfoRule", message: "Class Demo info", severity: .info),
+            Issue(ruleName: "WarnRule", message: "Class Demo warning", severity: .warning),
+            Issue(ruleName: "CriticalRule", message: "Class Demo critical", severity: .critical)
+        ]
+
+        let suggestions = await suggester.generateSuggestions(
+            issues: issues,
+            classes: classes,
+            sourceCode: "class Demo {}"
+        )
+
+        #expect(suggestions.count == 1)
+        #expect(!suggestions.map(\.ruleName).contains("WarnRule"))
+        #expect(suggestions.map(\.ruleName).contains("CriticalRule"))
+    }
+
+    @Test func testGeneratesPerClassSuggestionsAcrossDifferentClasses() async {
+        let suggester = AISuggester(provider: MockAIProvider(), maxSuggestions: 10, snippetLineLimit: 20)
+        let classes = [
+            ClassInfo(type: .model, name: "Demo", methodCount: 1, propertyCount: 1, lineCount: 10),
+            ClassInfo(type: .service, name: "Worker", methodCount: 1, propertyCount: 1, lineCount: 10)
+        ]
+        let issues = [
+            Issue(ruleName: "DemoWarn", message: "Class Demo warning", severity: .warning),
+            Issue(ruleName: "DemoCritical", message: "Class Demo critical", severity: .critical),
+            Issue(ruleName: "WorkerWarn", message: "Class Worker warning", severity: .warning)
+        ]
+
+        let suggestions = await suggester.generateSuggestions(
+            issues: issues,
+            classes: classes,
+            sourceCode: "class Demo {} class Worker {}"
+        )
+
+        #expect(suggestions.count == 2)
+        #expect(suggestions.map(\.ruleName).contains("DemoCritical"))
+        #expect(suggestions.map(\.ruleName).contains("WorkerWarn"))
+    }
+}
