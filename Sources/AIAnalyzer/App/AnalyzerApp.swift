@@ -50,6 +50,7 @@ struct AnalyzerApp {
             GodObjectRule()
         ])
         let reporter: Reporter = ConsoleReporter()
+        let aiConfiguration = AIConfiguration.fromEnvironment()
         
         // Tracks aggregate metrics for the entire session
         var summary = AnalysisSummary()
@@ -79,6 +80,15 @@ struct AnalyzerApp {
                 
                 // Use reporter for per-file results
                 reporter.report(file: fileName, classes: visitor.classes, issues: issues)
+
+                if let suggester = buildAISuggester(configuration: aiConfiguration) {
+                    let suggestions = suggester.generateSuggestions(
+                        issues: issues,
+                        classes: visitor.classes,
+                        sourceCode: source
+                    )
+                    reportAISuggestions(suggestions, file: fileName)
+                }
                 
             } catch {
                 print("❌ Error reading file: \(filePath)\n   \(error)")
@@ -87,5 +97,42 @@ struct AnalyzerApp {
         
         // Use reporter for final summary
         reporter.reportSummary(summary, fileIssueMap: fileIssueMap)
+    }
+
+    private static func buildAISuggester(configuration: AIConfiguration) -> AISuggester? {
+        guard configuration.enabled else {
+            return nil
+        }
+
+        guard configuration.provider.lowercased() == "gemini" else {
+            print("⚠️ Unsupported AI_PROVIDER: \(configuration.provider). Only 'gemini' is available in this skeleton.")
+            return nil
+        }
+
+        guard let apiKey = configuration.apiKey, !apiKey.isEmpty else {
+            print("⚠️ AI is enabled but GEMINI_API_KEY is missing.")
+            return nil
+        }
+
+        let provider = GeminiProvider(apiKey: apiKey, model: configuration.model)
+        return AISuggester(
+            provider: provider,
+            maxSuggestions: configuration.maxSuggestions,
+            snippetLineLimit: configuration.snippetLineLimit
+        )
+    }
+
+    private static func reportAISuggestions(_ suggestions: [AISuggestion], file: String) {
+        guard !suggestions.isEmpty else {
+            return
+        }
+
+        let verboseAI = (ProcessInfo.processInfo.environment["AI_VERBOSE"] ?? "false").lowercased() == "true"
+        print("🤖 AI Suggestions for \(file)")
+        print(String(repeating: "-", count: 40))
+        for suggestion in suggestions {
+            print(AISuggestionFormatter.format(suggestion, verbose: verboseAI))
+            print(String(repeating: "-", count: 40))
+        }
     }
 }
