@@ -31,6 +31,7 @@ enum AISuggestionFormatter {
 
         lines.append("\(suggestion.severity.rawValue) \(severityLabel(suggestion.severity)) [\(suggestion.ruleName)]")
         lines.append("Class      : \(suggestion.className)")
+        lines.append("Model      : \(suggestion.modelSource)")
         lines.append("Diagnosis  : \(clean(suggestion.diagnosis))")
         lines.append("")
 

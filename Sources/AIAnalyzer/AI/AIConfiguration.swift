@@ -23,48 +23,35 @@ import Foundation
 
 public struct AIConfiguration {
     /// Feature flag that enables or disables the AI suggestion layer entirely.
-    ///
-    /// When `false`, no AI provider is created and analysis remains purely rule-based.
     public let enabled: Bool
     
     /// Strategy selector for provider orchestration.
-    ///
-    /// - `gemini`: cloud-only requests.
-    /// - `local`: on-device inference/heuristics only.
-    /// - `hybrid`: local-first with optional cloud escalation.
     public let providerType: AIConstants.ProviderType
     
-    /// Cloud model identifier used by remote providers (for example Gemini variants).
+    /// Cloud model identifier used by remote providers (e.g., "gemini-1.5-flash").
     public let model: String
+
+    /// The human-readable name or identifier for the local model.
+    public let localModelName: String
     
     /// Cloud API key used to authenticate remote requests.
-    ///
-    /// Optional because local-only and hybrid-without-cloud modes can operate without it.
     public let apiKey: String?
 
     /// Filesystem path to a local Core ML model artifact.
-    ///
-    /// Expected to point to a valid `.mlmodel`, `.mlpackage`, or compiled `.mlmodelc`.
     public let localModelPath: String?
     
     /// Upper bound on AI suggestions generated per analyzed input.
-    ///
-    /// This helps cap latency and keep provider calls predictable.
     public let maxSuggestions: Int
     
     /// Maximum source lines included in the prompt context snippet.
-    ///
-    /// Larger values may improve suggestion quality but increase payload size/cost.
     public let snippetLineLimit: Int
 
-    /// Creates a strongly typed configuration object from resolved runtime values.
-    ///
-    /// This initializer does not perform validation; provider-specific validation happens
-    /// when building concrete providers in the app bootstrap flow.
+    /// Initializes a new AI configuration.
     public init(
         enabled: Bool,
         providerType: AIConstants.ProviderType,
         model: String,
+        localModelName: String,
         apiKey: String?,
         localModelPath: String?,
         maxSuggestions: Int,
@@ -73,25 +60,14 @@ public struct AIConfiguration {
         self.enabled = enabled
         self.providerType = providerType
         self.model = model
+        self.localModelName = localModelName
         self.apiKey = apiKey
         self.localModelPath = localModelPath
         self.maxSuggestions = maxSuggestions
         self.snippetLineLimit = snippetLineLimit
     }
 
-    /// Builds configuration by reading process environment variables.
-    ///
-    /// Supported variables:
-    /// - `AI_ENABLED`
-    /// - `AI_PROVIDER`
-    /// - `AI_MODEL`
-    /// - `GEMINI_API_KEY`
-    /// - `AI_LOCAL_MODEL_PATH`
-    /// - `AI_MAX_SUGGESTIONS`
-    /// - `AI_SNIPPET_LINES`
-    ///
-    /// Invalid or missing values are normalized to safe defaults.
-    /// - Returns: A fully initialized `AIConfiguration`.
+    /// Factory method that creates a configuration by reading environment variables.
     public static func fromEnvironment() -> AIConfiguration {
         let env = ProcessInfo.processInfo.environment
         let enabled = (env["AI_ENABLED"] ?? "false").lowercased() == "true"
@@ -99,9 +75,12 @@ public struct AIConfiguration {
         let providerRaw = env["AI_PROVIDER"] ?? "gemini"
         let providerType = AIConstants.ProviderType(rawValue: providerRaw.lowercased()) ?? .gemini
         
-        // Use Gemini for cloud-only, or Qwen as the base name for others
-        let defaultModel = (providerType == .gemini) ? "gemini-1.5-flash" : AIConstants.Local.defaultModelName
-        let model = env["AI_MODEL"] ?? defaultModel
+        // 1. Resolve and normalize Cloud Model (Gemini).
+        let rawModel = env["AI_MODEL"] ?? "gemini-1.5-flash"
+        let model = normalizeGeminiModel(rawModel)
+        
+        // 2. Resolve Local Model Name (Defaults to Qwen if not specified)
+        let localModelName = env["AI_LOCAL_MODEL"] ?? AIConstants.Local.defaultModelName
         
         let apiKey = env["GEMINI_API_KEY"]
         let localModelPath = env["AI_LOCAL_MODEL_PATH"]
@@ -113,6 +92,7 @@ public struct AIConfiguration {
             enabled: enabled,
             providerType: providerType,
             model: model,
+            localModelName: localModelName,
             apiKey: apiKey,
             localModelPath: localModelPath,
             maxSuggestions: maxSuggestions,
@@ -120,4 +100,25 @@ public struct AIConfiguration {
         )
     }
 
+    /// Normalizes user-provided Gemini model names into API-ready identifiers.
+    ///
+    /// Accepts common inputs such as:
+    /// - `gemini-3-flash-preview`
+    /// - `models/gemini-3-flash-preview`
+    ///
+    /// Returns a plain model id that can be safely appended after `/v1beta/models/`.
+    private static func normalizeGeminiModel(_ rawModel: String) -> String {
+        let trimmed = rawModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "gemini-3-flash-preview"
+        }
+
+        let modelsPrefix = "models/"
+        if trimmed.hasPrefix(modelsPrefix) {
+            let normalized = String(trimmed.dropFirst(modelsPrefix.count))
+            return normalized.isEmpty ? "gemini-3-flash-preview" : normalized
+        }
+
+        return trimmed
+    }
 }

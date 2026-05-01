@@ -91,6 +91,7 @@ struct AnalyzerApp {
         
         let engine = RuleEngine(rules: rules)
         let reporter: Reporter = ConsoleReporter()
+        EnvironmentFileLoader.apply(fromRootPath: rootPath)
         let aiConfiguration = AIConfiguration.fromEnvironment()
         
         var summary = AnalysisSummary()
@@ -141,7 +142,7 @@ struct AnalyzerApp {
     /// Provider selection rules:
     /// - `gemini`: requires `GEMINI_API_KEY`.
     /// - `local`: uses on-device provider only.
-    /// - `hybrid`: local-first and uses cloud escalation only when API key exists.
+    /// - `hybrid`: cloud-first and falls back to local when cloud is unavailable.
     ///
     /// - Parameter configuration: Resolved AI runtime configuration.
     /// - Returns: Configured suggester or `nil` when AI is disabled/misconfigured.
@@ -161,7 +162,7 @@ struct AnalyzerApp {
             provider = GeminiProvider(apiKey: apiKey, model: configuration.model)
 
         case .local:
-            provider = LocalLLMProvider(modelPath: configuration.localModelPath, modelName: configuration.model)
+            provider = LocalLLMProvider(modelPath: configuration.localModelPath, modelName: configuration.localModelName)
 
         case .hybrid:
             let cloud: AIProvider?
@@ -169,16 +170,16 @@ struct AnalyzerApp {
                 cloud = GeminiProvider(apiKey: apiKey, model: configuration.model)
             } else {
                 cloud = nil
-                print("ℹ️ Hybrid mode running without GEMINI_API_KEY. Cloud fallback is disabled.")
+                print("ℹ️ Hybrid mode running without GEMINI_API_KEY. Using local fallback path.")
             }
             
-            let localPreferred = LocalLLMProvider(modelPath: configuration.localModelPath, modelName: configuration.model, failIfStub: false)
-            let localFallback = LocalLLMProvider(modelPath: nil, modelName: configuration.model, failIfStub: false)
+            let localPreferred = LocalLLMProvider(modelPath: configuration.localModelPath, modelName: configuration.localModelName, failIfStub: false)
+            let localFallback = LocalLLMProvider(modelPath: nil, modelName: configuration.localModelName, failIfStub: false)
             provider = HybridAIProvider(
                 localPreferred: localPreferred,
                 localFallback: localFallback,
                 cloud: cloud,
-                preferLocal: true
+                preferLocal: false
             )
         }
 
@@ -228,5 +229,67 @@ struct AnalyzerApp {
             }
         }
         print("")
+    }
+}
+
+/// Loads project-level environment values from `.aianalyzer.env`.
+///
+/// This allows users to keep AI runtime settings in one file instead of exporting shell
+/// variables manually every run.
+private enum EnvironmentFileLoader {
+    private static let fileName = ".aianalyzer.env"
+
+    static func apply(fromRootPath rootPath: String) {
+        let fileURL = URL(fileURLWithPath: rootPath).appendingPathComponent(fileName)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+
+        guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
+            print("⚠️ Could not read \(fileName); continuing with shell environment variables.")
+            return
+        }
+
+        for (key, value) in parse(contents: contents) {
+            setenv(key, value, 1)
+        }
+    }
+
+    private static func parse(contents: String) -> [(String, String)] {
+        var entries: [(String, String)] = []
+
+        for rawLine in contents.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.isEmpty || line.hasPrefix("#") {
+                continue
+            }
+
+            guard let separatorIndex = line.firstIndex(of: "=") else {
+                continue
+            }
+
+            let key = String(line[..<separatorIndex]).trimmingCharacters(in: .whitespaces)
+            var value = String(line[line.index(after: separatorIndex)...]).trimmingCharacters(in: .whitespaces)
+
+            // Support optional wrapping quotes for values with spaces.
+            if value.count >= 2 {
+                let startsWithDoubleQuote = value.hasPrefix("\"")
+                let endsWithDoubleQuote = value.hasSuffix("\"")
+                let startsWithSingleQuote = value.hasPrefix("'")
+                let endsWithSingleQuote = value.hasSuffix("'")
+                if (startsWithDoubleQuote && endsWithDoubleQuote) || (startsWithSingleQuote && endsWithSingleQuote) {
+                    value.removeFirst()
+                    value.removeLast()
+                }
+            }
+
+            guard !key.isEmpty else {
+                continue
+            }
+
+            entries.append((key, value))
+        }
+
+        return entries
     }
 }

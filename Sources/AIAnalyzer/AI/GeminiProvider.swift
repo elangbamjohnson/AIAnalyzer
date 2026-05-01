@@ -49,6 +49,7 @@ public struct GeminiProvider: AIProvider {
             className: className,
             severity: context.issue.severity,
             diagnosis: "AI analysis generated for \(context.issue.ruleName).",
+            modelSource: "Cloud (Gemini: \(model))",
             suggestedRefactor: responseText
         )
     }
@@ -83,16 +84,19 @@ public struct GeminiProvider: AIProvider {
     /// - Returns: The text response from the model.
     /// - Throws: `AIProviderError`.
     private func callGemini(prompt: String) async throws -> String {
-        let endpoint = "\(AIConstants.Gemini.endpointBase)/\(model):generateContent?key=\(apiKey)"
-        
-        // Debug: Print the endpoint URL (masking the API key for security)
-        let maskedKey = apiKey.prefix(4) + "..." + apiKey.suffix(4)
-        let debugEndpoint = "\(AIConstants.Gemini.endpointBase)/\(model):generateContent?key=\(maskedKey)"
-        print("🌐 Requesting AI suggestion from: \(debugEndpoint)")
-
-        guard let url = URL(string: endpoint) else {
-            throw AIProviderError.invalidConfiguration("Invalid Gemini URL")
+        let validatedModel = try validateModelName(model)
+        guard var components = URLComponents(string: "\(AIConstants.Gemini.endpointBase)/\(validatedModel):generateContent") else {
+            throw AIProviderError.invalidConfiguration("Invalid Gemini URL base")
         }
+        components.queryItems = [URLQueryItem(name: "key", value: apiKey)]
+        guard let url = components.url else {
+            throw AIProviderError.invalidConfiguration("Invalid Gemini URL components")
+        }
+
+        // Debug: Print the endpoint URL (masking the API key for security).
+        let maskedKey = apiKey.prefix(4) + "..." + apiKey.suffix(4)
+        let debugEndpoint = "\(AIConstants.Gemini.endpointBase)/\(validatedModel):generateContent?key=\(maskedKey)"
+        print("🌐 Requesting AI suggestion from: \(debugEndpoint)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -138,8 +142,8 @@ public struct GeminiProvider: AIProvider {
             let (data, response) = try await URLSession.shared.data(for: request)
             
             if let code = (response as? HTTPURLResponse)?.statusCode, !(200...299).contains(code) {
-                let bodyText = String(data: data, encoding: .utf8) ?? "<empty>"
-                throw AIProviderError.requestFailed("HTTP \(code): \(bodyText)")
+                let parsedMessage = parseAPIErrorMessage(from: data)
+                throw AIProviderError.requestFailed("HTTP \(code): \(parsedMessage)")
             }
             
             return data
@@ -169,6 +173,45 @@ public struct GeminiProvider: AIProvider {
         }
 
         return text
+    }
+
+    /// Validates a Gemini model identifier and returns a safe model path segment.
+    ///
+    /// Expected format examples:
+    /// - `gemini-1.5-flash`
+    /// - `gemini-2.0-flash`
+    ///
+    /// Rejected format examples:
+    /// - `models/gemini-1.5-flash` (prefix should be normalized before provider construction)
+    /// - Full URLs or resource names containing `/`
+    private func validateModelName(_ rawModel: String) throws -> String {
+        let trimmed = rawModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw AIProviderError.invalidConfiguration(
+                "AI_MODEL is empty. Use a value like 'gemini-1.5-flash'."
+            )
+        }
+
+        if trimmed.contains("/") || trimmed.contains(" ") {
+            throw AIProviderError.invalidConfiguration(
+                "Invalid AI_MODEL '\(rawModel)'. Use only the model id (e.g., 'gemini-1.5-flash')."
+            )
+        }
+
+        return trimmed
+    }
+
+    /// Extracts user-friendly API error messages from Gemini error payloads.
+    private func parseAPIErrorMessage(from data: Data) -> String {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let error = json["error"] as? [String: Any],
+            let message = error["message"] as? String
+        else {
+            return String(data: data, encoding: .utf8) ?? "<empty>"
+        }
+
+        return message.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Determines if a failure is transient and should be retried.

@@ -130,6 +130,7 @@ public struct HybridAIProvider: AIProvider {
             className: context.classInfo?.name ?? "Unknown",
             severity: context.issue.severity,
             diagnosis: "Analysis provided via basic static fallback.",
+            modelSource: "Static Fallback Engine",
             suggestedRefactor: "Please review the SRP and architectural limits for \(context.issue.ruleName). Detailed AI suggestions are currently unavailable."
         )
     }

@@ -56,14 +56,13 @@ public struct LocalLLMProvider: AIProvider {
                 if failIfStub {
                     throw error
                 }
-                // Reliability fallback: local heuristics keep the app useful when the model cannot run.
-                return generateLocalIntelligenceSuggestion(for: context)
+                // Reliability fallback
+                return generateLocalIntelligenceSuggestion(for: context, source: "Local Heuristics (Fallback from \(modelName))")
             }
         }
 
-        // 2. Phase 2: Use local intelligence engine (No network required)
-        let suggestion = generateLocalIntelligenceSuggestion(for: context)
-        return suggestion
+        // 2. Phase 2: Use local intelligence engine
+        return generateLocalIntelligenceSuggestion(for: context, source: "Local Heuristics (\(modelName) Engine)")
     }
 
     /// Runs the Core ML inference path for text generation/refactoring guidance.
@@ -88,13 +87,14 @@ public struct LocalLLMProvider: AIProvider {
             let outputText = (try? runTextInference(model: model, prompt: prompt))
                 ?? "[\(modelName)] Model loaded successfully, but no text-compatible input/output signature was detected. Falling back to static local analysis."
             
-            let heuristic = generateLocalIntelligenceSuggestion(for: context)
+            let heuristic = generateLocalIntelligenceSuggestion(for: context, source: "Local Heuristics (Augmented)")
 
             return AISuggestion(
                 ruleName: context.issue.ruleName,
                 className: context.classInfo?.name ?? "Unknown",
                 severity: context.issue.severity,
-                diagnosis: "[\(modelName)] Analysis complete using model at \(url.lastPathComponent).",
+                diagnosis: "Analysis complete using model at \(url.lastPathComponent).",
+                modelSource: "Local Model (\(modelName))",
                 suggestedRefactor: outputText + "\n\n" + heuristic.suggestedRefactor
             )
         } catch {
@@ -163,14 +163,16 @@ public struct LocalLLMProvider: AIProvider {
     /// Deterministic fallback engine that generates rule-specific refactor guidance.
     ///
     /// This path ensures useful output in fully offline scenarios or when model inference fails.
-    /// - Parameter context: Static analyzer context for the issue.
+    /// - Parameters:
+    ///   - context: Static analyzer context for the issue.
+    ///   - source: The model source label to apply.
     /// - Returns: Rule-tailored `AISuggestion`.
-    private func generateLocalIntelligenceSuggestion(for context: AIRequestContext) -> AISuggestion {
+    private func generateLocalIntelligenceSuggestion(for context: AIRequestContext, source: String) -> AISuggestion {
         let className = context.classInfo?.name ?? "Class"
         let rule = context.issue.ruleName
         
         var advice = ""
-        let diagnosis = "[\(modelName) Local Engine] Analysis of \(rule) violation."
+        let diagnosis = "Analysis of \(rule) violation."
 
         switch rule {
         case "GodObject":
@@ -209,6 +211,7 @@ public struct LocalLLMProvider: AIProvider {
             className: className,
             severity: context.issue.severity,
             diagnosis: diagnosis,
+            modelSource: source,
             suggestedRefactor: advice
         )
     }
