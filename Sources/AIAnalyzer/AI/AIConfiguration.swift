@@ -99,7 +99,10 @@ public struct AIConfiguration {
         let providerRaw = env["AI_PROVIDER"] ?? "gemini"
         let providerType = AIConstants.ProviderType(rawValue: providerRaw.lowercased()) ?? .gemini
         
-        let model = env["AI_MODEL"] ?? "gemini-1.5-flash"
+        // Use Gemini for cloud-only, or Qwen as the base name for others
+        let defaultModel = (providerType == .gemini) ? "gemini-1.5-flash" : AIConstants.Local.defaultModelName
+        let model = env["AI_MODEL"] ?? defaultModel
+        
         let apiKey = env["GEMINI_API_KEY"]
         let localModelPath = env["AI_LOCAL_MODEL_PATH"]
         

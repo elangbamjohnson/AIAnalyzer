@@ -19,6 +19,9 @@ import CoreML
 public struct LocalLLMProvider: AIProvider {
     /// Optional local model path supplied from environment/configuration.
     private let modelPath: String?
+
+    /// The name of the model being used (e.g., Qwen2.5-Coder-7B-Instruct).
+    private let modelName: String
     
     /// Strictness toggle:
     /// - `true`: throw errors when model path/inference is unavailable.
@@ -28,9 +31,11 @@ public struct LocalLLMProvider: AIProvider {
     /// Creates a local provider with optional strict behavior.
     /// - Parameters:
     ///   - modelPath: Path to local Core ML model artifact.
+    ///   - modelName: The human-readable name of the model.
     ///   - failIfStub: Whether provider should fail instead of using heuristics.
-    public init(modelPath: String?, failIfStub: Bool = false) {
+    public init(modelPath: String?, modelName: String = AIConstants.Local.defaultModelName, failIfStub: Bool = false) {
         self.modelPath = modelPath
+        self.modelName = modelName
         self.failIfStub = failIfStub
     }
 
@@ -40,7 +45,7 @@ public struct LocalLLMProvider: AIProvider {
     /// - Throws: `AIProviderError.localUnavailable` when strict mode is enabled and inference cannot run.
     public func suggest(for context: AIRequestContext) async throws -> AISuggestion {
         if failIfStub && modelPath == nil {
-             throw AIProviderError.localUnavailable("No local model path provided and failIfStub is enabled.")
+             throw AIProviderError.localUnavailable("No local model path provided for \(modelName) and failIfStub is enabled.")
         }
 
         // 1. Try to load and use a real CoreML model if path is provided
@@ -81,7 +86,7 @@ public struct LocalLLMProvider: AIProvider {
             let model = try loadModel(from: url)
             let prompt = buildPrompt(from: context)
             let outputText = (try? runTextInference(model: model, prompt: prompt))
-                ?? "Model loaded successfully, but no text-compatible input/output signature was detected. Falling back to static local analysis."
+                ?? "[\(modelName)] Model loaded successfully, but no text-compatible input/output signature was detected. Falling back to static local analysis."
             
             let heuristic = generateLocalIntelligenceSuggestion(for: context)
 
@@ -89,11 +94,11 @@ public struct LocalLLMProvider: AIProvider {
                 ruleName: context.issue.ruleName,
                 className: context.classInfo?.name ?? "Unknown",
                 severity: context.issue.severity,
-                diagnosis: "[Local CoreML] Analysis complete using model at \(url.lastPathComponent).",
+                diagnosis: "[\(modelName)] Analysis complete using model at \(url.lastPathComponent).",
                 suggestedRefactor: outputText + "\n\n" + heuristic.suggestedRefactor
             )
         } catch {
-            throw AIProviderError.localUnavailable("CoreML Error: \(error.localizedDescription)")
+            throw AIProviderError.localUnavailable("CoreML Error for \(modelName): \(error.localizedDescription)")
         }
     }
 
@@ -165,7 +170,7 @@ public struct LocalLLMProvider: AIProvider {
         let rule = context.issue.ruleName
         
         var advice = ""
-        let diagnosis = "Local analysis of \(rule) violation."
+        let diagnosis = "[\(modelName) Local Engine] Analysis of \(rule) violation."
 
         switch rule {
         case "GodObject":

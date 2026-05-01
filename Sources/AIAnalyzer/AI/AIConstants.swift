@@ -33,7 +33,8 @@ public enum AIConstants {
     /// Namespaced constants for local on-device inference.
     public enum Local {
         /// Human-readable default model name used for documentation/UI messaging.
-        public static let defaultModelName = "Llama-3-8B-Instruct"
+//        public static let defaultModelName = "Llama-3-8B-Instruct"
+        public static let defaultModelName = "Qwen2.5-Coder-7B-Instruct"
     }
     
     /// Global defaults applied when environment values are missing or invalid.

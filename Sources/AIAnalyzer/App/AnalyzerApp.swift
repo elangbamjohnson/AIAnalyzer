@@ -161,7 +161,7 @@ struct AnalyzerApp {
             provider = GeminiProvider(apiKey: apiKey, model: configuration.model)
 
         case .local:
-            provider = LocalLLMProvider(modelPath: configuration.localModelPath)
+            provider = LocalLLMProvider(modelPath: configuration.localModelPath, modelName: configuration.model)
 
         case .hybrid:
             let cloud: AIProvider?
@@ -172,8 +172,8 @@ struct AnalyzerApp {
                 print("ℹ️ Hybrid mode running without GEMINI_API_KEY. Cloud fallback is disabled.")
             }
             
-            let localPreferred = LocalLLMProvider(modelPath: configuration.localModelPath, failIfStub: false)
-            let localFallback = LocalLLMProvider(modelPath: nil, failIfStub: false)
+            let localPreferred = LocalLLMProvider(modelPath: configuration.localModelPath, modelName: configuration.model, failIfStub: false)
+            let localFallback = LocalLLMProvider(modelPath: nil, modelName: configuration.model, failIfStub: false)
             provider = HybridAIProvider(
                 localPreferred: localPreferred,
                 localFallback: localFallback,
