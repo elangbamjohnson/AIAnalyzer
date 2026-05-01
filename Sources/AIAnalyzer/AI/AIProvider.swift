@@ -67,6 +67,9 @@ public enum AIProviderError: Error {
     
     /// The provider returned data that could not be parsed.
     case invalidResponse
+
+    /// On-device / local inference is unavailable (not loaded, not implemented, or failed).
+    case localUnavailable(String)
 }
 
 extension AIProviderError: LocalizedError {
@@ -81,6 +84,8 @@ extension AIProviderError: LocalizedError {
             return "AI request timed out."
         case .invalidResponse:
             return "AI provider returned an invalid response."
+        case .localUnavailable(let message):
+            return "Local AI unavailable: \(message)"
         }
     }
 }

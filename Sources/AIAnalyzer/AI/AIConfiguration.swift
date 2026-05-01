@@ -7,13 +7,13 @@
 
 import Foundation
 
-/// `AIConfiguration` is responsible for managing the settings that control the AI-powered suggestion engine.
+/// `AIConfiguration` encapsulates all runtime settings that control the AI suggestion pipeline.
 ///
 /// It acts as a central source of truth for:
 /// - Toggling the AI feature on or off.
-/// - Selecting the AI service provider and specific model version.
-/// - Managing sensitive authentication data (API keys).
-/// - Tuning the intensity of AI suggestions via caps and context window limits.
+/// - Selecting which provider strategy to use (`gemini`, `local`, or `hybrid`).
+/// - Passing provider-specific inputs such as cloud model name/API key or local model path.
+/// - Controlling request volume and prompt context size for predictable CLI output.
 ///
 /// This configuration is typically initialized using the `fromEnvironment()` factory method,
 /// which maps system environment variables to these properties, allowing for flexible
@@ -22,64 +22,96 @@ import Foundation
 
 
 public struct AIConfiguration {
-    /// Indicates whether the AI suggestion engine is enabled.
+    /// Feature flag that enables or disables the AI suggestion layer entirely.
+    ///
+    /// When `false`, no AI provider is created and analysis remains purely rule-based.
     public let enabled: Bool
     
-    /// The AI provider to use (e.g., "gemini").
-    public let provider: String
+    /// Strategy selector for provider orchestration.
+    ///
+    /// - `gemini`: cloud-only requests.
+    /// - `local`: on-device inference/heuristics only.
+    /// - `hybrid`: local-first with optional cloud escalation.
+    public let providerType: AIConstants.ProviderType
     
-    /// The specific model identifier for the chosen provider.
+    /// Cloud model identifier used by remote providers (for example Gemini variants).
     public let model: String
     
-    /// The API key required to authenticate with the AI provider.
+    /// Cloud API key used to authenticate remote requests.
+    ///
+    /// Optional because local-only and hybrid-without-cloud modes can operate without it.
     public let apiKey: String?
+
+    /// Filesystem path to a local Core ML model artifact.
+    ///
+    /// Expected to point to a valid `.mlmodel`, `.mlpackage`, or compiled `.mlmodelc`.
+    public let localModelPath: String?
     
-    /// The maximum number of AI suggestions to generate per analysis session.
+    /// Upper bound on AI suggestions generated per analyzed input.
+    ///
+    /// This helps cap latency and keep provider calls predictable.
     public let maxSuggestions: Int
     
-    /// The maximum number of lines from the source file to include in the AI prompt context.
+    /// Maximum source lines included in the prompt context snippet.
+    ///
+    /// Larger values may improve suggestion quality but increase payload size/cost.
     public let snippetLineLimit: Int
 
-    /// Initializes a new AI configuration.
-    /// - Parameters:
-    ///   - enabled: Whether AI is active.
-    ///   - provider: The provider name.
-    ///   - model: The model version.
-    ///   - apiKey: Optional API key.
-    ///   - maxSuggestions: Cap on total suggestions.
-    ///   - snippetLineLimit: Line limit for context snippets.
+    /// Creates a strongly typed configuration object from resolved runtime values.
+    ///
+    /// This initializer does not perform validation; provider-specific validation happens
+    /// when building concrete providers in the app bootstrap flow.
     public init(
         enabled: Bool,
-        provider: String,
+        providerType: AIConstants.ProviderType,
         model: String,
         apiKey: String?,
+        localModelPath: String?,
         maxSuggestions: Int,
         snippetLineLimit: Int
     ) {
         self.enabled = enabled
-        self.provider = provider
+        self.providerType = providerType
         self.model = model
         self.apiKey = apiKey
+        self.localModelPath = localModelPath
         self.maxSuggestions = maxSuggestions
         self.snippetLineLimit = snippetLineLimit
     }
 
-    /// Factory method that creates a configuration by reading environment variables.
-    /// - Returns: An `AIConfiguration` populated from `ProcessInfo`.
+    /// Builds configuration by reading process environment variables.
+    ///
+    /// Supported variables:
+    /// - `AI_ENABLED`
+    /// - `AI_PROVIDER`
+    /// - `AI_MODEL`
+    /// - `GEMINI_API_KEY`
+    /// - `AI_LOCAL_MODEL_PATH`
+    /// - `AI_MAX_SUGGESTIONS`
+    /// - `AI_SNIPPET_LINES`
+    ///
+    /// Invalid or missing values are normalized to safe defaults.
+    /// - Returns: A fully initialized `AIConfiguration`.
     public static func fromEnvironment() -> AIConfiguration {
         let env = ProcessInfo.processInfo.environment
         let enabled = (env["AI_ENABLED"] ?? "false").lowercased() == "true"
-        let provider = env["AI_PROVIDER"] ?? "gemini"
-        let model = env["AI_MODEL"] ?? "gemini-3-flash-preview"
+        
+        let providerRaw = env["AI_PROVIDER"] ?? "gemini"
+        let providerType = AIConstants.ProviderType(rawValue: providerRaw.lowercased()) ?? .gemini
+        
+        let model = env["AI_MODEL"] ?? "gemini-1.5-flash"
         let apiKey = env["GEMINI_API_KEY"]
+        let localModelPath = env["AI_LOCAL_MODEL_PATH"]
+        
         let maxSuggestions = Int(env["AI_MAX_SUGGESTIONS"] ?? "") ?? AIConstants.Defaults.maxSuggestions
         let snippetLineLimit = Int(env["AI_SNIPPET_LINES"] ?? "") ?? AIConstants.Defaults.snippetLineLimit
 
         return AIConfiguration(
             enabled: enabled,
-            provider: provider,
+            providerType: providerType,
             model: model,
             apiKey: apiKey,
+            localModelPath: localModelPath,
             maxSuggestions: maxSuggestions,
             snippetLineLimit: snippetLineLimit
         )

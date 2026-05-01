@@ -131,6 +131,27 @@ private struct MockAIProvider: AIProvider {
     }
 }
 
+private struct ThrowingAIProvider: AIProvider {
+    func suggest(for context: AIRequestContext) async throws -> AISuggestion {
+        throw AIProviderError.localUnavailable("Simulated provider failure")
+    }
+}
+
+private struct StaticAIProvider: AIProvider {
+    let diagnosis: String
+    let suggestedRefactor: String
+
+    func suggest(for context: AIRequestContext) async throws -> AISuggestion {
+        AISuggestion(
+            ruleName: context.issue.ruleName,
+            className: context.classInfo?.name ?? "UnknownClass",
+            severity: context.issue.severity,
+            diagnosis: diagnosis,
+            suggestedRefactor: suggestedRefactor
+        )
+    }
+}
+
 @Suite("AI Suggestion Tests")
 struct AISuggesterTests {
     @Test func testGeneratesHighestSeveritySuggestionPerClassOnly() async {
@@ -174,6 +195,49 @@ struct AISuggesterTests {
         #expect(suggestions.count == 2)
         #expect(suggestions.map(\.ruleName).contains("DemoCritical"))
         #expect(suggestions.map(\.ruleName).contains("WorkerWarn"))
+    }
+}
+
+@Suite("Hybrid AI Provider Tests")
+struct HybridAIProviderTests {
+    private let demoContext = AIRequestContext(
+        issue: Issue(ruleName: "LargeClass", message: "Demo issue", severity: .warning),
+        classInfo: ClassInfo(type: .model, name: "Demo", methodCount: 20, propertyCount: 10, lineCount: 200),
+        sourceSnippet: "class Demo {}"
+    )
+
+    @Test func testLocalFirstUsesCloudWhenLocalConfidenceIsLow() async throws {
+        let lowConfidenceLocal = StaticAIProvider(diagnosis: "Local low confidence", suggestedRefactor: "too short")
+        let cloud = StaticAIProvider(diagnosis: "Cloud diagnosis", suggestedRefactor: "Detailed cloud recommendation for reliable fallback behavior.")
+        let localFallback = StaticAIProvider(diagnosis: "Fallback diagnosis", suggestedRefactor: "Fallback recommendation text")
+
+        let provider = HybridAIProvider(
+            localPreferred: lowConfidenceLocal,
+            localFallback: localFallback,
+            cloud: cloud,
+            preferLocal: true
+        )
+
+        let suggestion = try await provider.suggest(for: demoContext)
+        #expect(suggestion.diagnosis == "Cloud diagnosis")
+    }
+
+    @Test func testLocalFirstWithoutCloudFallsBackToLocalProvider() async throws {
+        let failingLocal = ThrowingAIProvider()
+        let localFallback = StaticAIProvider(
+            diagnosis: "Local fallback diagnosis",
+            suggestedRefactor: "A long and explicit local fallback recommendation with enough detail."
+        )
+
+        let provider = HybridAIProvider(
+            localPreferred: failingLocal,
+            localFallback: localFallback,
+            cloud: nil,
+            preferLocal: true
+        )
+
+        let suggestion = try await provider.suggest(for: demoContext)
+        #expect(suggestion.diagnosis == "Local fallback diagnosis")
     }
 }
 

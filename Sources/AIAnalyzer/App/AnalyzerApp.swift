@@ -7,11 +7,16 @@
 import Foundation
 import SwiftParser
 
-/// The main entry point for the AIAnalyzer command-line tool.
+/// Command-line entry point that coordinates scanning, analysis, reporting, and AI suggestions.
 @main
 struct AnalyzerApp {
-    /// Orchestrates the entire analysis lifecycle: CLI input parsing, file discovery, 
-    /// syntax visitation, rule evaluation, and final reporting.
+    /// Runs the full analyzer lifecycle:
+    /// - validates CLI input
+    /// - discovers target Swift files
+    /// - parses/visits syntax
+    /// - evaluates rule violations
+    /// - optionally enriches results with AI suggestions
+    /// - emits per-file and summary reports
     static func main() async {
         
         // 1. Validate input
@@ -131,22 +136,52 @@ struct AnalyzerApp {
         reporter.reportSummary(summary, fileIssueMap: fileIssueMap)
     }
 
+    /// Builds an `AISuggester` from runtime configuration and provider strategy.
+    ///
+    /// Provider selection rules:
+    /// - `gemini`: requires `GEMINI_API_KEY`.
+    /// - `local`: uses on-device provider only.
+    /// - `hybrid`: local-first and uses cloud escalation only when API key exists.
+    ///
+    /// - Parameter configuration: Resolved AI runtime configuration.
+    /// - Returns: Configured suggester or `nil` when AI is disabled/misconfigured.
     private static func buildAISuggester(configuration: AIConfiguration) -> AISuggester? {
         guard configuration.enabled else {
             return nil
         }
 
-        guard configuration.provider.lowercased() == "gemini" else {
-            print("⚠️ Unsupported AI_PROVIDER: \(configuration.provider). Only 'gemini' is available in this skeleton.")
-            return nil
+        let provider: AIProvider
+
+        switch configuration.providerType {
+        case .gemini:
+            guard let apiKey = configuration.apiKey, !apiKey.isEmpty else {
+                print("⚠️ AI is set to 'gemini' but GEMINI_API_KEY is missing.")
+                return nil
+            }
+            provider = GeminiProvider(apiKey: apiKey, model: configuration.model)
+
+        case .local:
+            provider = LocalLLMProvider(modelPath: configuration.localModelPath)
+
+        case .hybrid:
+            let cloud: AIProvider?
+            if let apiKey = configuration.apiKey, !apiKey.isEmpty {
+                cloud = GeminiProvider(apiKey: apiKey, model: configuration.model)
+            } else {
+                cloud = nil
+                print("ℹ️ Hybrid mode running without GEMINI_API_KEY. Cloud fallback is disabled.")
+            }
+            
+            let localPreferred = LocalLLMProvider(modelPath: configuration.localModelPath, failIfStub: false)
+            let localFallback = LocalLLMProvider(modelPath: nil, failIfStub: false)
+            provider = HybridAIProvider(
+                localPreferred: localPreferred,
+                localFallback: localFallback,
+                cloud: cloud,
+                preferLocal: true
+            )
         }
 
-        guard let apiKey = configuration.apiKey, !apiKey.isEmpty else {
-            print("⚠️ AI is enabled but GEMINI_API_KEY is missing.")
-            return nil
-        }
-
-        let provider = GeminiProvider(apiKey: apiKey, model: configuration.model)
         return AISuggester(
             provider: provider,
             maxSuggestions: configuration.maxSuggestions,
@@ -154,6 +189,15 @@ struct AnalyzerApp {
         )
     }
 
+    /// Prints AI suggestions for a single analyzed file in a readable terminal section.
+    ///
+    /// Output style can be adjusted through environment flags:
+    /// - `AI_VERBOSE`
+    /// - `AI_TYPEWRITER_MS`
+    ///
+    /// - Parameters:
+    ///   - suggestions: Suggestions generated for the file.
+    ///   - file: File name used as report heading.
     private static func reportAISuggestions(_ suggestions: [AISuggestion], file: String) {
         guard !suggestions.isEmpty else {
             return
@@ -170,6 +214,10 @@ struct AnalyzerApp {
         }
     }
 
+    /// Renders text with a typewriter effect to improve readability in CLI output.
+    /// - Parameters:
+    ///   - text: Content to print.
+    ///   - delayMs: Delay in milliseconds between characters.
     private static func printWithTypewriterEffect(_ text: String, delayMs: Int) {
         let safeDelay = max(0, delayMs)
         for character in text {
