@@ -141,8 +141,9 @@ struct AnalyzerApp {
     ///
     /// Provider selection rules:
     /// - `gemini`: requires `GEMINI_API_KEY`.
-    /// - `local`: uses on-device provider only.
-    /// - `hybrid`: cloud-first and falls back to local when cloud is unavailable.
+    /// - `local`: Core ML + heuristics (`AI_LOCAL_MODEL_PATH` optional).
+    /// - `ollama`: local Ollama OpenAI-compatible API (`OLLAMA_MODEL`, `OLLAMA_ENDPOINT`).
+    /// - `hybrid`: Ollama-first; escalates to Gemini when local confidence is low or Ollama fails; heuristic Core ML fallback as last resort.
     ///
     /// - Parameter configuration: Resolved AI runtime configuration.
     /// - Returns: Configured suggester or `nil` when AI is disabled/misconfigured.
@@ -161,7 +162,13 @@ struct AnalyzerApp {
             }
             provider = GeminiProvider(apiKey: apiKey, model: configuration.model)
 
+        case .ollama:
+            provider = OllamaProvider(endpoint: configuration.ollamaEndpoint, modelName: configuration.ollamaModel)
+
         case .local:
+            if let warning = Self.localProviderCoreMLDiagnostics(configuration: configuration) {
+                print(warning)
+            }
             provider = LocalLLMProvider(modelPath: configuration.localModelPath, modelName: configuration.localModelName)
 
         case .hybrid:
@@ -172,22 +179,44 @@ struct AnalyzerApp {
                 cloud = nil
                 print("ℹ️ Hybrid mode running without GEMINI_API_KEY. Using local fallback path.")
             }
-            
-            let localPreferred = LocalLLMProvider(modelPath: configuration.localModelPath, modelName: configuration.localModelName, failIfStub: false)
+
+            // Prefer Ollama as the local tier in Hybrid mode
+            let localPreferred = OllamaProvider(endpoint: configuration.ollamaEndpoint, modelName: configuration.ollamaModel)
             let localFallback = LocalLLMProvider(modelPath: nil, modelName: configuration.localModelName, failIfStub: false)
+
             provider = HybridAIProvider(
                 localPreferred: localPreferred,
                 localFallback: localFallback,
                 cloud: cloud,
-                preferLocal: false
+                preferLocal: true
             )
         }
+
 
         return AISuggester(
             provider: provider,
             maxSuggestions: configuration.maxSuggestions,
             snippetLineLimit: configuration.snippetLineLimit
         )
+    }
+
+    /// Explains why `AI_PROVIDER=local` may still show heuristic output (Core ML vs Ollama).
+    private static func localProviderCoreMLDiagnostics(configuration: AIConfiguration) -> String? {
+        guard let path = configuration.localModelPath else {
+            return """
+            ⚠️ AI_PROVIDER=local uses Core ML only (`LocalLLMProvider`), not Ollama.
+               `AI_LOCAL_MODEL` is only a label; without a valid `AI_LOCAL_MODEL_PATH` (.mlmodelc), you get rule-based heuristics.
+               For Qwen via Ollama: set AI_PROVIDER=ollama and OLLAMA_MODEL (e.g. qwen2.5-coder:7b).
+            """
+        }
+        if !FileManager.default.fileExists(atPath: path) {
+            return """
+            ⚠️ AI_LOCAL_MODEL_PATH not found: \(path)
+               Core ML inference will fail; output falls back to heuristics.
+               Point to a real .mlmodelc bundle, or use AI_PROVIDER=ollama for your Qwen model.
+            """
+        }
+        return nil
     }
 
     /// Prints AI suggestions for a single analyzed file in a readable terminal section.

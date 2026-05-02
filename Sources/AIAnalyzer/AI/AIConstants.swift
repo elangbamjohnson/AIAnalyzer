@@ -17,6 +17,8 @@ public enum AIConstants {
         case gemini
         /// Local-only path using Core ML and heuristic fallbacks.
         case local
+        /// Local-only path using a running Ollama instance.
+        case ollama
         /// Local-first path with optional cloud fallback.
         case hybrid
     }
@@ -28,6 +30,15 @@ public enum AIConstants {
         
         /// Default retry count for transient network/provider failures.
         public static let defaultMaxRetryAttempts = 3
+    }
+
+    /// Namespaced constants for Ollama API communication.
+    public enum Ollama {
+        /// Default local endpoint for Ollama (OpenAI compatible).
+        public static let endpointBase = "http://localhost:11434/v1/chat/completions"
+        
+        /// Default model name for Ollama.
+        public static let defaultModelName = "qwen2.5-coder:7b"
     }
     
     /// Namespaced constants for local on-device inference.

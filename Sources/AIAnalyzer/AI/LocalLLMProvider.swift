@@ -61,20 +61,20 @@ public struct LocalLLMProvider: AIProvider {
             }
         }
 
-        // 2. Phase 2: Use local intelligence engine
+        // 2. If no model path is configured, use deterministic local intelligence.
         return generateLocalIntelligenceSuggestion(for: context, source: "Local Heuristics (\(modelName) Engine)")
     }
 
     /// Runs the Core ML inference path for text generation/refactoring guidance.
     ///
-    /// The method validates model existence, loads/compiles it if required, executes
-    /// text inference when the model signature supports it, then appends deterministic
-    /// heuristic guidance to preserve actionable output quality.
+    /// The method validates model existence, loads/compiles it if required, and executes
+    /// text inference. The model output is returned as the primary result. Heuristic fallback
+    /// is handled by the caller only when this path fails.
     ///
     /// - Parameters:
     ///   - path: Filesystem path to model artifact.
     ///   - context: AI request context used to build the prompt.
-    /// - Returns: Suggestion combining model output and local heuristic guidance.
+    /// - Returns: Suggestion driven by model-generated output.
     private func performCoreMLInference(at path: String, for context: AIRequestContext) async throws -> AISuggestion {
         let url = URL(fileURLWithPath: path)
         do {
@@ -84,10 +84,7 @@ public struct LocalLLMProvider: AIProvider {
             
             let model = try loadModel(from: url)
             let prompt = buildPrompt(from: context)
-            let outputText = (try? runTextInference(model: model, prompt: prompt))
-                ?? "[\(modelName)] Model loaded successfully, but no text-compatible input/output signature was detected. Falling back to static local analysis."
-            
-            let heuristic = generateLocalIntelligenceSuggestion(for: context, source: "Local Heuristics (Augmented)")
+            let outputText = try runTextInference(model: model, prompt: prompt)
 
             return AISuggestion(
                 ruleName: context.issue.ruleName,
@@ -95,7 +92,7 @@ public struct LocalLLMProvider: AIProvider {
                 severity: context.issue.severity,
                 diagnosis: "Analysis complete using model at \(url.lastPathComponent).",
                 modelSource: "Local Model (\(modelName))",
-                suggestedRefactor: outputText + "\n\n" + heuristic.suggestedRefactor
+                suggestedRefactor: outputText
             )
         } catch {
             throw AIProviderError.localUnavailable("CoreML Error for \(modelName): \(error.localizedDescription)")
