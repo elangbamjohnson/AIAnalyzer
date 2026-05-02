@@ -244,6 +244,46 @@ struct HybridAIProviderTests {
     }
 }
 
+@Suite("AIRequestContext Prompt Tests")
+struct AIRequestContextPromptTests {
+    private let context = AIRequestContext(
+        issue: Issue(ruleName: "LargeClass", message: "Demo issue", severity: .warning),
+        classInfo: ClassInfo(type: .model, name: "Demo", methodCount: 20, propertyCount: 10, lineCount: 200),
+        sourceSnippet: "class Demo { func foo() {} }"
+    )
+
+    @Test func testStandardPromptContainsStructuralSections() {
+        let prompt = context.buildPrompt(compact: false)
+
+        #expect(prompt.contains("You are a senior Swift architect."))
+        #expect(prompt.contains("Root cause"))
+        #expect(prompt.contains("Refactor steps"))
+        #expect(prompt.contains("Quick win"))
+        #expect(prompt.contains("LargeClass"))
+        #expect(prompt.contains("Demo"))
+        #expect(prompt.contains("class Demo { func foo() {} }"))
+    }
+
+    @Test func testCompactPromptExcludesStructuralSections() {
+        let prompt = context.buildPrompt(compact: true)
+
+        #expect(prompt.contains("You are a Swift refactoring assistant."))
+        #expect(!prompt.contains("You are a senior Swift architect."))
+        #expect(!prompt.contains("Root cause"))
+        #expect(!prompt.contains("Refactor steps"))
+        #expect(!prompt.contains("Quick win"))
+        #expect(prompt.contains("LargeClass"))
+        #expect(prompt.contains("Demo"))
+        #expect(prompt.contains("class Demo { func foo() {} }"))
+    }
+
+    @Test func testPromptDefaultsToStandardMode() {
+        let prompt = context.buildPrompt()
+        #expect(prompt.contains("You are a senior Swift architect."))
+        #expect(prompt.contains("Root cause"))
+    }
+}
+
 @Suite("Input Validation Tests")
 struct InputValidationTests {
 

@@ -33,6 +33,47 @@ public struct AIRequestContext {
         self.classInfo = classInfo
         self.sourceSnippet = sourceSnippet
     }
+
+    /// Builds a prompt string for AI providers from the request context.
+    ///
+    /// The standard (non-compact) prompt instructs the model to act as a senior Swift architect
+    /// and return structured output with root cause, refactor steps, and a quick win.
+    /// The compact variant is shorter and optimized for local/on-device models with tighter context limits.
+    ///
+    /// - Parameter compact: If `true`, returns a shorter prompt formatted for local models.
+    /// - Returns: A formatted prompt string ready to send to the AI provider.
+    public func buildPrompt(compact: Bool = false) -> String {
+        let className = classInfo?.name ?? "UnknownClass"
+        if compact {
+            return """
+            You are a Swift refactoring assistant.
+            Rule: \(issue.ruleName)
+            Severity: \(issue.severity.rawValue)
+            Message: \(issue.message)
+            Class: \(className)
+            Code:
+            \(sourceSnippet)
+            """
+        } else {
+            return """
+            You are a senior Swift architect.
+            Analyze this finding and provide concise, actionable refactor guidance.
+
+            Rule: \(issue.ruleName)
+            Severity: \(issue.severity.rawValue)
+            Issue message: \(issue.message)
+            Class: \(className)
+
+            Code snippet:
+            \(sourceSnippet)
+
+            Return:
+            1) Root cause (1-2 lines)
+            2) Refactor steps (3-5 bullets)
+            3) Quick win (1 bullet)
+            """
+        }
+    }
 }
 
 /// `AIProvider` defines the standard interface for any Large Language Model (LLM) backend.

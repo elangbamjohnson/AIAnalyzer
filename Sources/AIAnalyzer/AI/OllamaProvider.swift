@@ -18,7 +18,7 @@ public struct OllamaProvider: AIProvider {
     }
 
     public func suggest(for context: AIRequestContext) async throws -> AISuggestion {
-        let prompt = buildPrompt(for: context)
+        let prompt = context.buildPrompt()
         let responseText = try await callOllama(prompt: prompt)
 
         return AISuggestion(
@@ -29,27 +29,6 @@ public struct OllamaProvider: AIProvider {
             modelSource: "Local (Ollama: \(modelName))",
             suggestedRefactor: responseText
         )
-    }
-
-    private func buildPrompt(for context: AIRequestContext) -> String {
-        let className = context.classInfo?.name ?? "UnknownClass"
-        return """
-        You are a senior Swift architect.
-        Analyze this finding and provide concise, actionable refactor guidance.
-
-        Rule: \(context.issue.ruleName)
-        Severity: \(context.issue.severity.rawValue)
-        Issue message: \(context.issue.message)
-        Class: \(className)
-
-        Code snippet:
-        \(context.sourceSnippet)
-
-        Return:
-        1) Root cause (1-2 lines)
-        2) Refactor steps (3-5 bullets)
-        3) Quick win (1 bullet)
-        """
     }
 
     private func callOllama(prompt: String) async throws -> String {

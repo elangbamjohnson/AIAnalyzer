@@ -83,7 +83,7 @@ public struct LocalLLMProvider: AIProvider {
             }
             
             let model = try loadModel(from: url)
-            let prompt = buildPrompt(from: context)
+            let prompt = context.buildPrompt(compact: true)
             let outputText = try runTextInference(model: model, prompt: prompt)
 
             return AISuggestion(
@@ -112,23 +112,6 @@ public struct LocalLLMProvider: AIProvider {
         let compiledURL = try MLModel.compileModel(at: url)
         return try MLModel(contentsOf: compiledURL)
     }
-    
-    /// Constructs a compact prompt for local model inference from analyzer context.
-    /// - Parameter context: Rule violation and snippet metadata.
-    /// - Returns: Prompt string sent to the local model.
-    private func buildPrompt(from context: AIRequestContext) -> String {
-        let className = context.classInfo?.name ?? "UnknownClass"
-        return """
-        You are a Swift refactoring assistant.
-        Rule: \(context.issue.ruleName)
-        Severity: \(context.issue.severity.rawValue)
-        Message: \(context.issue.message)
-        Class: \(className)
-        Code:
-        \(context.sourceSnippet)
-        """
-    }
-    
     /// Executes text inference by mapping the prompt to the first available string input feature.
     ///
     /// It then extracts the first non-empty string output among predicted features.

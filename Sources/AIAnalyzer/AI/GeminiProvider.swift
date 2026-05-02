@@ -41,7 +41,7 @@ public struct GeminiProvider: AIProvider {
     /// - Throws: `AIProviderError` on failure.
     public func suggest(for context: AIRequestContext) async throws -> AISuggestion {
         let className = context.classInfo?.name ?? "UnknownClass"
-        let prompt = buildPrompt(context: context, className: className)
+        let prompt = context.buildPrompt()
         let responseText = try await callGemini(prompt: prompt)
 
         return AISuggestion(
@@ -52,31 +52,6 @@ public struct GeminiProvider: AIProvider {
             modelSource: "Cloud (Gemini: \(model))",
             suggestedRefactor: responseText
         )
-    }
-
-    /// Constructs the text prompt to be sent to the AI.
-    /// - Parameters:
-    ///   - context: The issue details and snippet.
-    ///   - className: The target class name.
-    /// - Returns: A formatted prompt string.
-    private func buildPrompt(context: AIRequestContext, className: String) -> String {
-        return """
-        You are a senior Swift architect.
-        Analyze this finding and provide concise, actionable refactor guidance.
-
-        Rule: \(context.issue.ruleName)
-        Severity: \(context.issue.severity.rawValue)
-        Issue message: \(context.issue.message)
-        Class: \(className)
-
-        Code snippet:
-        \(context.sourceSnippet)
-
-        Return:
-        1) Root cause (1-2 lines)
-        2) Refactor steps (3-5 bullets)
-        3) Quick win (1 bullet)
-        """
     }
 
     /// Orchestrates the HTTP request to the Gemini API with retry logic.
