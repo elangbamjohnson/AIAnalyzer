@@ -43,15 +43,34 @@ public struct AIRequestContext {
     /// - Parameter compact: If `true`, returns a shorter prompt formatted for local models.
     /// - Returns: A formatted prompt string ready to send to the AI provider.
     public func buildPrompt(compact: Bool = false) -> String {
-        let className = classInfo?.name ?? "UnknownClass"
+        let typeName = classInfo?.name ?? "UnknownType"
+        
+        var structuralMetadata = ""
+        if let info = classInfo {
+            structuralMetadata = """
+            Structural Profile:
+            - Initializers: \(info.initializerCount)
+            - Computed Properties (Accessors): \(info.accessorCount)
+            - Subscripts: \(info.subscriptCount)
+            - Methods: \(info.methodCount)
+            - Total Lines: \(info.lineCount)
+            
+            Member Map (Relative line ranges):
+            \(info.memberInfos.map { "  - \($0.name) (Lines \($0.startLine)-\($0.endLine))" }.joined(separator: "\n"))
+            """
+        }
+
         if compact {
             return """
             You are a Swift refactoring assistant.
             Rule: \(issue.ruleName)
             Severity: \(issue.severity.rawValue)
             Message: \(issue.message)
-            Class: \(className)
-            Code:
+            Type: \(typeName)
+            
+            \(structuralMetadata)
+
+            Code Snippet:
             \(sourceSnippet)
             """
         } else {
@@ -62,9 +81,11 @@ public struct AIRequestContext {
             Rule: \(issue.ruleName)
             Severity: \(issue.severity.rawValue)
             Issue message: \(issue.message)
-            Class: \(className)
+            Type: \(typeName)
 
-            Code snippet:
+            \(structuralMetadata)
+
+            Code Snippet:
             \(sourceSnippet)
 
             Return:
