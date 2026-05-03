@@ -30,4 +30,7 @@ jobs:
       - name: Smoke — run analyzer on fixture (AI off)
         env:
           AI_ENABLED: "false"
-        run: swift run AIAnalyzer Fixtures/SmokeSample.swift
+        run: |
+          FIXTURE="${{ github.workspace }}/Fixtures/SmokeSample.swift"
+          test -f "$FIXTURE" || { echo "Missing fixture (did you commit Fixtures/SmokeSample.swift?): $FIXTURE"; exit 1; }
+          swift run AIAnalyzer "$FIXTURE"
