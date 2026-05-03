@@ -18,20 +18,13 @@ struct AnalyzerApp {
     /// - optionally enriches results with AI suggestions
     /// - emits per-file and summary reports
     static func main() async {
-        
-        // 1. Validate input
-        guard CommandLine.arguments.count > 1 else {
-            print("Usage: swift run AIAnalyzer <file.swift | folder>")
-            exit(1)
-        }
-
-        let inputPath = CommandLine.arguments[1]
+        let (isJsonMode, inputPath) = parseCLIArguments()
         let fullPath = URL(fileURLWithPath: inputPath).standardized.path
         
         var isDirectory: ObjCBool = false
         
         guard FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDirectory) else {
-            print("❌ Path does not exist")
+            emitError("Path does not exist", isJsonMode: isJsonMode)
             exit(1)
         }
 
@@ -39,7 +32,7 @@ struct AnalyzerApp {
             for: fullPath,
             isDirectory: isDirectory.boolValue
         ) {
-            print(validationError)
+            emitError(validationError, isJsonMode: isJsonMode)
             exit(1)
         }
         
@@ -54,18 +47,18 @@ struct AnalyzerApp {
         let filePaths: [String]
         
         if isDirectory.boolValue {
-            print("📂 Scanning folder: \(fullPath)")
+            if !isJsonMode { print("📂 Scanning folder: \(fullPath)") }
             filePaths = FileScanner.getSwiftFiles(in: fullPath, ignoring: config.ignoreDirectories)
         } else {
             filePaths = [fullPath]
         }
         
         guard !filePaths.isEmpty else {
-            print("⚠️ No Swift files found.")
+            if !isJsonMode { print("⚠️ No Swift files found.") }
             exit(0)
         }
         
-        print("📊 Found \(filePaths.count) Swift files\n")
+        if !isJsonMode { print("📊 Found \(filePaths.count) Swift files\n") }
         
         // 4. Build rules from config
         var rules: [Rule] = []
@@ -98,6 +91,8 @@ struct AnalyzerApp {
         summary.totalFiles = filePaths.count
         
         var fileIssueMap: [String: [Issue]] = [:]
+        var allIssueReports: [IssueReport] = []
+        var hasProcessingErrors = false
         
         // 5. Process files
         for filePath in filePaths {
@@ -116,25 +111,83 @@ struct AnalyzerApp {
                 summary.totalClasses += visitor.classes.count
                 summary.addIssues(issues)
                 
-                // Use reporter for per-file results
-                reporter.report(file: fileName, classes: visitor.classes, issues: issues)
+                if isJsonMode {
+                    // Map canonical rule-engine output to machine-readable reports.
+                    for issue in issues {
+                        allIssueReports.append(IssueReport(
+                            rule: issue.ruleName,
+                            severity: issue.severity.rawValue,
+                            message: issue.message,
+                            file: fileName,
+                            line: issue.line,
+                            typeName: inferTypeName(for: issue, classes: visitor.classes)
+                        ))
+                    }
+                } else {
+                    // Use reporter for per-file results
+                    reporter.report(file: fileName, classes: visitor.classes, issues: issues)
 
-                if let suggester = buildAISuggester(configuration: aiConfiguration) {
-                    let suggestions = await suggester.generateSuggestions(
-                        issues: issues,
-                        classes: visitor.classes,
-                        sourceCode: source
-                    )
-                    reportAISuggestions(suggestions, file: fileName)
+                    if let suggester = buildAISuggester(configuration: aiConfiguration) {
+                        let suggestions = await suggester.generateSuggestions(
+                            issues: issues,
+                            classes: visitor.classes,
+                            sourceCode: source
+                        )
+                        reportAISuggestions(suggestions, file: fileName)
+                    }
                 }
                 
             } catch {
-                print("❌ Error reading file: \(filePath)\n   \(error)")
+                hasProcessingErrors = true
+                emitError("Error reading file: \(filePath)\n   \(error)", isJsonMode: isJsonMode)
             }
         }
         
         // 6. Final summary
-        reporter.reportSummary(summary, fileIssueMap: fileIssueMap)
+        if isJsonMode {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            if let data = try? encoder.encode(allIssueReports), let jsonString = String(data: data, encoding: .utf8) {
+                print(jsonString)
+            }
+            if hasProcessingErrors {
+                exit(1)
+            }
+        } else {
+            reporter.reportSummary(summary, fileIssueMap: fileIssueMap)
+        }
+    }
+
+    /// Parses command-line arguments and validates required positional input.
+    private static func parseCLIArguments() -> (isJsonMode: Bool, inputPath: String) {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        let isJsonMode = arguments.contains("--json")
+        let positional = arguments.filter { !$0.hasPrefix("--") }
+
+        guard let inputPath = positional.first else {
+            let usage = "Usage: swift run AIAnalyzer <file.swift | folder> [--json]"
+            emitError(usage, isJsonMode: isJsonMode)
+            exit(1)
+        }
+
+        return (isJsonMode, inputPath)
+    }
+
+    /// Emits errors to stderr in JSON mode to avoid corrupting machine-readable stdout.
+    private static func emitError(_ message: String, isJsonMode: Bool) {
+        if isJsonMode {
+            fputs("ERROR: \(message)\n", stderr)
+        } else {
+            print("❌ \(message)")
+        }
+    }
+
+    /// Best-effort mapping of an issue to a type name for JSON output.
+    private static func inferTypeName(for issue: Issue, classes: [ClassInfo]) -> String {
+        for classInfo in classes where issue.message.contains(classInfo.name) {
+            return classInfo.name
+        }
+        return classes.first?.name ?? "UnknownType"
     }
 
     /// Builds an `AISuggester` from runtime configuration and provider strategy.
