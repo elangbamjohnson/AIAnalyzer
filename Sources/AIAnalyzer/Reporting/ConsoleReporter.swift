@@ -16,9 +16,18 @@ public struct ConsoleReporter: Reporter {
         print(String(repeating: "-", count: 40))
 
         for classInfo in classes {
-            print("📦 Class: \(classInfo.name) [\(classInfo.type)]")
+            print("📦 Type: \(classInfo.name) [\(classInfo.type)]")
+            print("   Inits: \(classInfo.initializerCount) | Accessors: \(classInfo.accessorCount) | Subscripts: \(classInfo.subscriptCount)")
             print("   Methods: \(classInfo.methodCount) | Properties: \(classInfo.propertyCount) | Lines: \(classInfo.lineCount)")
+
+            if !classInfo.memberInfos.isEmpty {
+                print("   Members Map:")
+                for member in classInfo.memberInfos {
+                    print("      - \(member.name) (Lines \(member.startLine)-\(member.endLine))")
+                }
+            }
         }
+
 
         if !issues.isEmpty {
             print("")
@@ -53,11 +62,11 @@ public struct ConsoleReporter: Reporter {
         print("\n" + String(repeating: "=", count: 40))
         print("📊 Summary")
         print("Files scanned: \(summary.totalFiles)")
-        print("Classes analyzed: \(summary.totalClasses)")
-        print("Total issues: \(summary.totalIssues)")
-        print("⚠️ Warnings: \(summary.warnings) | ℹ️ Info: \(summary.infos) | 🔴 Critical: \(summary.criticals)")
+        print("Types analyzed: \(summary.totalClasses)")
+        print("Total issues: \(summary.issueCounts.total)")
+        print("⚠️ Warnings: \(summary.issueCounts.warnings) | ℹ️ Info: \(summary.issueCounts.infos) | 🔴 Critical: \(summary.issueCounts.criticals)")
 
-        if summary.totalIssues == 0 {
+        if summary.issueCounts.total == 0 {
             print("✅ No issues found. Clean code!")
         }
         print(String(repeating: "=", count: 40) + "\n")

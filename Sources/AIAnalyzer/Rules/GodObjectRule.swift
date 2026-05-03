@@ -68,7 +68,7 @@ public struct GodObjectRule: Rule {
         
         return Issue(
             ruleName: name,
-            message: "Class \(classInfo.name) is a God Object (Major SRP violation). It exceeds multiple limits: \(reasons.joined(separator: ", ")).",
+            message: "Type \(classInfo.name) is a God Object (Major SRP violation). It exceeds multiple limits: \(reasons.joined(separator: ", ")).",
             severity: severity,
             line: nil
         )

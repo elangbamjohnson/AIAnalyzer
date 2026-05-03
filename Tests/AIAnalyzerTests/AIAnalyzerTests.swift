@@ -119,14 +119,69 @@ struct VisitorTests {
     }
 }
 
+@Suite("Visitor Struct Tests")
+struct VisitorStructTests {
+    @Test func testStructDetection() {
+        let source = """
+        struct MyStruct {
+            var a: Int = 1
+            var b: Int = 2
+            func process() {}
+        }
+        """
+        
+        let sourceFile = Parser.parse(source: source)
+        let visitor = ClassVisitor(viewMode: .all)
+        visitor.walk(sourceFile)
+        
+        #expect(visitor.classes.count == 1)
+        let info = visitor.classes[0]
+        #expect(info.name == "MyStruct")
+        #expect(info.propertyCount == 2)
+        #expect(info.methodCount == 1)
+    }
+}
+
 private struct MockAIProvider: AIProvider {
     func suggest(for context: AIRequestContext) async throws -> AISuggestion {
         AISuggestion(
-            ruleName: context.issue.ruleName,
-            className: context.classInfo?.name ?? "UnknownClass",
-            severity: context.issue.severity,
-            diagnosis: "mock diagnosis",
-            suggestedRefactor: "mock refactor"
+            metadata: .init(
+                ruleName: context.issue.ruleName,
+                typeName: context.classInfo?.name ?? "UnknownClass",
+                severity: context.issue.severity
+            ),
+            content: .init(
+                diagnosis: "mock diagnosis",
+                modelSource: "MockProvider",
+                suggestedRefactor: "mock refactor"
+            )
+        )
+    }
+}
+
+private struct ThrowingAIProvider: AIProvider {
+    func suggest(for context: AIRequestContext) async throws -> AISuggestion {
+        throw AIProviderError.localUnavailable("Simulated provider failure")
+    }
+}
+
+private struct StaticAIProvider: AIProvider {
+    let diagnosis: String
+    let suggestedRefactor: String
+    let source: String = "StaticProvider"
+
+    func suggest(for context: AIRequestContext) async throws -> AISuggestion {
+        AISuggestion(
+            metadata: .init(
+                ruleName: context.issue.ruleName,
+                typeName: context.classInfo?.name ?? "UnknownClass",
+                severity: context.issue.severity
+            ),
+            content: .init(
+                diagnosis: diagnosis,
+                modelSource: source,
+                suggestedRefactor: suggestedRefactor
+            )
         )
     }
 }
@@ -149,8 +204,8 @@ struct AISuggesterTests {
         )
 
         #expect(suggestions.count == 1)
-        #expect(!suggestions.map(\.ruleName).contains("WarnRule"))
-        #expect(suggestions.map(\.ruleName).contains("CriticalRule"))
+        #expect(!suggestions.map(\.metadata.ruleName).contains("WarnRule"))
+        #expect(suggestions.map(\.metadata.ruleName).contains("CriticalRule"))
     }
 
     @Test func testGeneratesPerClassSuggestionsAcrossDifferentClasses() async {
@@ -172,8 +227,91 @@ struct AISuggesterTests {
         )
 
         #expect(suggestions.count == 2)
-        #expect(suggestions.map(\.ruleName).contains("DemoCritical"))
-        #expect(suggestions.map(\.ruleName).contains("WorkerWarn"))
+        #expect(suggestions.map(\.metadata.ruleName).contains("DemoCritical"))
+        #expect(suggestions.map(\.metadata.ruleName).contains("WorkerWarn"))
+    }
+}
+
+@Suite("Hybrid AI Provider Tests")
+struct HybridAIProviderTests {
+    private let demoContext = AIRequestContext(
+        issue: Issue(ruleName: "LargeClass", message: "Demo issue", severity: .warning),
+        classInfo: ClassInfo(type: .model, name: "Demo", methodCount: 20, propertyCount: 10, lineCount: 200),
+        sourceSnippet: "class Demo {}"
+    )
+
+    @Test func testLocalFirstUsesCloudWhenLocalConfidenceIsLow() async throws {
+        let lowConfidenceLocal = StaticAIProvider(diagnosis: "Local low confidence", suggestedRefactor: "too short")
+        let cloud = StaticAIProvider(diagnosis: "Cloud diagnosis", suggestedRefactor: "Detailed cloud recommendation for reliable fallback behavior.")
+        let localFallback = StaticAIProvider(diagnosis: "Fallback diagnosis", suggestedRefactor: "Fallback recommendation text")
+
+        let provider = HybridAIProvider(
+            localPreferred: lowConfidenceLocal,
+            localFallback: localFallback,
+            cloud: cloud,
+            preferLocal: true
+        )
+
+        let suggestion = try await provider.suggest(for: demoContext)
+        #expect(suggestion.content.diagnosis == "Cloud diagnosis")
+    }
+
+    @Test func testLocalFirstWithoutCloudFallsBackToLocalProvider() async throws {
+        let failingLocal = ThrowingAIProvider()
+        let localFallback = StaticAIProvider(
+            diagnosis: "Local fallback diagnosis",
+            suggestedRefactor: "A long and explicit local fallback recommendation with enough detail."
+        )
+
+        let provider = HybridAIProvider(
+            localPreferred: failingLocal,
+            localFallback: localFallback,
+            cloud: nil,
+            preferLocal: true
+        )
+
+        let suggestion = try await provider.suggest(for: demoContext)
+        #expect(suggestion.content.diagnosis == "Local fallback diagnosis")
+    }
+}
+
+@Suite("AIRequestContext Prompt Tests")
+struct AIRequestContextPromptTests {
+    private let context = AIRequestContext(
+        issue: Issue(ruleName: "LargeClass", message: "Demo issue", severity: .warning),
+        classInfo: ClassInfo(type: .model, name: "Demo", methodCount: 20, propertyCount: 10, lineCount: 200),
+        sourceSnippet: "class Demo { func foo() {} }"
+    )
+
+    @Test func testStandardPromptContainsStructuralSections() {
+        let prompt = context.buildPrompt(compact: false)
+
+        #expect(prompt.contains("You are a senior Swift architect."))
+        #expect(prompt.contains("Root cause"))
+        #expect(prompt.contains("Refactor steps"))
+        #expect(prompt.contains("Quick win"))
+        #expect(prompt.contains("LargeClass"))
+        #expect(prompt.contains("Demo"))
+        #expect(prompt.contains("class Demo { func foo() {} }"))
+    }
+
+    @Test func testCompactPromptExcludesStructuralSections() {
+        let prompt = context.buildPrompt(compact: true)
+
+        #expect(prompt.contains("You are a Swift refactoring assistant."))
+        #expect(!prompt.contains("You are a senior Swift architect."))
+        #expect(!prompt.contains("Root cause"))
+        #expect(!prompt.contains("Refactor steps"))
+        #expect(!prompt.contains("Quick win"))
+        #expect(prompt.contains("LargeClass"))
+        #expect(prompt.contains("Demo"))
+        #expect(prompt.contains("class Demo { func foo() {} }"))
+    }
+
+    @Test func testPromptDefaultsToStandardMode() {
+        let prompt = context.buildPrompt()
+        #expect(prompt.contains("You are a senior Swift architect."))
+        #expect(prompt.contains("Root cause"))
     }
 }
 

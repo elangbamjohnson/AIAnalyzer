@@ -67,7 +67,7 @@ public struct LargeClassRule: Rule {
         
         return Issue(
             ruleName: name,
-            message: "Class \(classInfo.name) is too large: \(reasons.joined(separator: ", "))",
+            message: "Type \(classInfo.name) is too large: \(reasons.joined(separator: ", "))",
             severity: severity,
             line: nil
         )

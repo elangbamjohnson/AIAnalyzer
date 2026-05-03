@@ -40,42 +40,22 @@ public struct GeminiProvider: AIProvider {
     /// - Returns: An `AISuggestion` populated with the API response.
     /// - Throws: `AIProviderError` on failure.
     public func suggest(for context: AIRequestContext) async throws -> AISuggestion {
-        let className = context.classInfo?.name ?? "UnknownClass"
-        let prompt = buildPrompt(context: context, className: className)
+        let typeName = context.classInfo?.name ?? "UnknownType"
+        let prompt = context.buildPrompt()
         let responseText = try await callGemini(prompt: prompt)
 
         return AISuggestion(
-            ruleName: context.issue.ruleName,
-            className: className,
-            severity: context.issue.severity,
-            diagnosis: "AI analysis generated for \(context.issue.ruleName).",
-            suggestedRefactor: responseText
+            metadata: .init(
+                ruleName: context.issue.ruleName,
+                typeName: typeName,
+                severity: context.issue.severity
+            ),
+            content: .init(
+                diagnosis: "AI analysis generated for \(context.issue.ruleName).",
+                modelSource: "Cloud (Gemini: \(model))",
+                suggestedRefactor: responseText
+            )
         )
-    }
-
-    /// Constructs the text prompt to be sent to the AI.
-    /// - Parameters:
-    ///   - context: The issue details and snippet.
-    ///   - className: The target class name.
-    /// - Returns: A formatted prompt string.
-    private func buildPrompt(context: AIRequestContext, className: String) -> String {
-        return """
-        You are a senior Swift architect.
-        Analyze this finding and provide concise, actionable refactor guidance.
-
-        Rule: \(context.issue.ruleName)
-        Severity: \(context.issue.severity.rawValue)
-        Issue message: \(context.issue.message)
-        Class: \(className)
-
-        Code snippet:
-        \(context.sourceSnippet)
-
-        Return:
-        1) Root cause (1-2 lines)
-        2) Refactor steps (3-5 bullets)
-        3) Quick win (1 bullet)
-        """
     }
 
     /// Orchestrates the HTTP request to the Gemini API with retry logic.
@@ -83,16 +63,19 @@ public struct GeminiProvider: AIProvider {
     /// - Returns: The text response from the model.
     /// - Throws: `AIProviderError`.
     private func callGemini(prompt: String) async throws -> String {
-        let endpoint = "\(AIConstants.Gemini.endpointBase)/\(model):generateContent?key=\(apiKey)"
-        
-        // Debug: Print the endpoint URL (masking the API key for security)
-        let maskedKey = apiKey.prefix(4) + "..." + apiKey.suffix(4)
-        let debugEndpoint = "\(AIConstants.Gemini.endpointBase)/\(model):generateContent?key=\(maskedKey)"
-        print("🌐 Requesting AI suggestion from: \(debugEndpoint)")
-
-        guard let url = URL(string: endpoint) else {
-            throw AIProviderError.invalidConfiguration("Invalid Gemini URL")
+        let validatedModel = try validateModelName(model)
+        guard var components = URLComponents(string: "\(AIConstants.Gemini.endpointBase)/\(validatedModel):generateContent") else {
+            throw AIProviderError.invalidConfiguration("Invalid Gemini URL base")
         }
+        components.queryItems = [URLQueryItem(name: "key", value: apiKey)]
+        guard let url = components.url else {
+            throw AIProviderError.invalidConfiguration("Invalid Gemini URL components")
+        }
+
+        // Debug: Print the endpoint URL (masking the API key for security).
+        let maskedKey = apiKey.prefix(4) + "..." + apiKey.suffix(4)
+        let debugEndpoint = "\(AIConstants.Gemini.endpointBase)/\(validatedModel):generateContent?key=\(maskedKey)"
+        print("🌐 Requesting AI suggestion from: \(debugEndpoint)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -138,8 +121,8 @@ public struct GeminiProvider: AIProvider {
             let (data, response) = try await URLSession.shared.data(for: request)
             
             if let code = (response as? HTTPURLResponse)?.statusCode, !(200...299).contains(code) {
-                let bodyText = String(data: data, encoding: .utf8) ?? "<empty>"
-                throw AIProviderError.requestFailed("HTTP \(code): \(bodyText)")
+                let parsedMessage = parseAPIErrorMessage(from: data)
+                throw AIProviderError.requestFailed("HTTP \(code): \(parsedMessage)")
             }
             
             return data
@@ -169,6 +152,45 @@ public struct GeminiProvider: AIProvider {
         }
 
         return text
+    }
+
+    /// Validates a Gemini model identifier and returns a safe model path segment.
+    ///
+    /// Expected format examples:
+    /// - `gemini-1.5-flash`
+    /// - `gemini-2.0-flash`
+    ///
+    /// Rejected format examples:
+    /// - `models/gemini-1.5-flash` (prefix should be normalized before provider construction)
+    /// - Full URLs or resource names containing `/`
+    private func validateModelName(_ rawModel: String) throws -> String {
+        let trimmed = rawModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw AIProviderError.invalidConfiguration(
+                "AI_MODEL is empty. Use a value like 'gemini-1.5-flash'."
+            )
+        }
+
+        if trimmed.contains("/") || trimmed.contains(" ") {
+            throw AIProviderError.invalidConfiguration(
+                "Invalid AI_MODEL '\(rawModel)'. Use only the model id (e.g., 'gemini-1.5-flash')."
+            )
+        }
+
+        return trimmed
+    }
+
+    /// Extracts user-friendly API error messages from Gemini error payloads.
+    private func parseAPIErrorMessage(from data: Data) -> String {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let error = json["error"] as? [String: Any],
+            let message = error["message"] as? String
+        else {
+            return String(data: data, encoding: .utf8) ?? "<empty>"
+        }
+
+        return message.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Determines if a failure is transient and should be retried.

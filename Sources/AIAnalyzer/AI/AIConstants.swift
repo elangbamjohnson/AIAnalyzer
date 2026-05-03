@@ -7,23 +7,53 @@
 
 import Foundation
 
-/// A collection of constant values used by the AI suggestion engine.
+/// Shared constants used by AI provider configuration, networking, and defaults.
 public enum AIConstants {
-    /// Constants specific to the Gemini AI provider.
+    /// Enumerates supported provider orchestration modes.
+    ///
+    /// These values are parsed from `AI_PROVIDER` and drive provider construction.
+    public enum ProviderType: String {
+        /// Cloud-only path using Gemini APIs.
+        case gemini
+        /// Local-only path using Core ML and heuristic fallbacks.
+        case local
+        /// Local-only path using a running Ollama instance.
+        case ollama
+        /// Local-first path with optional cloud fallback.
+        case hybrid
+    }
+
+    /// Namespaced constants for Gemini API communication.
     public enum Gemini {
-        /// The base URL for the Gemini API.
+        /// Base endpoint for Gemini model invocation.
         public static let endpointBase = "https://generativelanguage.googleapis.com/v1beta/models"
         
-        /// The default number of retry attempts for network requests.
+        /// Default retry count for transient network/provider failures.
         public static let defaultMaxRetryAttempts = 3
     }
+
+    /// Namespaced constants for Ollama API communication.
+    public enum Ollama {
+        /// Default local endpoint for Ollama (OpenAI compatible).
+        public static let endpointBase = "http://localhost:11434/v1/chat/completions"
+        
+        /// Default model name for Ollama.
+        public static let defaultModelName = "qwen2.5-coder:7b"
+    }
     
-    /// Global AI limits and defaults.
+    /// Namespaced constants for local on-device inference.
+    public enum Local {
+        /// Human-readable default model name used for documentation/UI messaging.
+//        public static let defaultModelName = "Llama-3-8B-Instruct"
+        public static let defaultModelName = "Qwen2.5-Coder-7B-Instruct"
+    }
+    
+    /// Global defaults applied when environment values are missing or invalid.
     public enum Defaults {
-        /// Default maximum number of suggestions to generate.
+        /// Fallback upper bound for suggestions generated per analysis run.
         public static let maxSuggestions = 5
         
-        /// Default maximum number of lines to include in context snippets.
+        /// Fallback maximum source lines included in prompt context.
         public static let snippetLineLimit = 120
     }
 }
