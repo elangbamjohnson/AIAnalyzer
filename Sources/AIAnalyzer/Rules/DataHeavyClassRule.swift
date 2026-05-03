@@ -27,7 +27,7 @@ public struct DataHeavyClassRule: Rule {
         if classInfo.propertyCount > threshold {
             return Issue(
                 ruleName: name,
-                message: "Class \(classInfo.name) has too many properties (\(classInfo.propertyCount)).",
+                message: "Type \(classInfo.name) has too many properties (\(classInfo.propertyCount)).",
                 severity: .info,
                 line: nil
             )

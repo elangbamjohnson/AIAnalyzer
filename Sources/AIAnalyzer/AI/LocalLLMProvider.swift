@@ -61,7 +61,7 @@ public struct LocalLLMProvider: AIProvider {
             }
         }
 
-        // 2. If no model path is configured, use deterministic local intelligence.
+        // 2. Phase 2: Use local intelligence engine
         return generateLocalIntelligenceSuggestion(for: context, source: "Local Heuristics (\(modelName) Engine)")
     }
 
@@ -77,6 +77,7 @@ public struct LocalLLMProvider: AIProvider {
     /// - Returns: Suggestion driven by model-generated output.
     private func performCoreMLInference(at path: String, for context: AIRequestContext) async throws -> AISuggestion {
         let url = URL(fileURLWithPath: path)
+        let typeName = context.classInfo?.name ?? "UnknownType"
         do {
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw AIProviderError.localUnavailable("Model file not found at \(path)")
@@ -86,13 +87,19 @@ public struct LocalLLMProvider: AIProvider {
             let prompt = context.buildPrompt(compact: true)
             let outputText = try runTextInference(model: model, prompt: prompt)
 
+            let heuristic = generateLocalIntelligenceSuggestion(for: context, source: "Local Heuristics (Augmented)")
+
             return AISuggestion(
-                ruleName: context.issue.ruleName,
-                className: context.classInfo?.name ?? "Unknown",
-                severity: context.issue.severity,
-                diagnosis: "Analysis complete using model at \(url.lastPathComponent).",
-                modelSource: "Local Model (\(modelName))",
-                suggestedRefactor: outputText
+                metadata: .init(
+                    ruleName: context.issue.ruleName,
+                    typeName: typeName,
+                    severity: context.issue.severity
+                ),
+                content: .init(
+                    diagnosis: "Analysis complete using model at \(url.lastPathComponent).",
+                    modelSource: "Local Model (\(modelName))",
+                    suggestedRefactor: outputText + "\n\n" + heuristic.content.suggestedRefactor
+                )
             )
         } catch {
             throw AIProviderError.localUnavailable("CoreML Error for \(modelName): \(error.localizedDescription)")
@@ -112,6 +119,7 @@ public struct LocalLLMProvider: AIProvider {
         let compiledURL = try MLModel.compileModel(at: url)
         return try MLModel(contentsOf: compiledURL)
     }
+    
     /// Executes text inference by mapping the prompt to the first available string input feature.
     ///
     /// It then extracts the first non-empty string output among predicted features.
@@ -143,12 +151,11 @@ public struct LocalLLMProvider: AIProvider {
     /// Deterministic fallback engine that generates rule-specific refactor guidance.
     ///
     /// This path ensures useful output in fully offline scenarios or when model inference fails.
-    /// - Parameters:
-    ///   - context: Static analyzer context for the issue.
-    ///   - source: The model source label to apply.
+    /// - Parameter context: Static analyzer context for the issue.
+    /// - Parameter source: The model source label to apply.
     /// - Returns: Rule-tailored `AISuggestion`.
     private func generateLocalIntelligenceSuggestion(for context: AIRequestContext, source: String) -> AISuggestion {
-        let className = context.classInfo?.name ?? "Class"
+        let typeName = context.classInfo?.name ?? "Type"
         let rule = context.issue.ruleName
         
         var advice = ""
@@ -157,7 +164,7 @@ public struct LocalLLMProvider: AIProvider {
         switch rule {
         case "GodObject":
             advice = """
-            1) Root Cause: \(className) is handling too many responsibilities (UI, Data, Logic).
+            1) Root Cause: \(typeName) is handling too many responsibilities (UI, Data, Logic).
             2) Refactor Steps:
                - Extract networking logic into a Service class.
                - Move property-heavy state into a specialized Model or ViewModel.
@@ -166,7 +173,7 @@ public struct LocalLLMProvider: AIProvider {
             """
         case "LargeClass":
             advice = """
-            1) Root Cause: \(className) exceeds recommended line/method counts for its type.
+            1) Root Cause: \(typeName) exceeds recommended line/method counts for its type.
             2) Refactor Steps:
                - Identify distinct functional blocks and move them to separate files.
                - Use composition instead of inheritance to share logic.
@@ -175,7 +182,7 @@ public struct LocalLLMProvider: AIProvider {
             """
         case "DataHeavyClass":
             advice = """
-            1) Root Cause: High property-to-method ratio suggests this class is a 'Data Bucket'.
+            1) Root Cause: High property-to-method ratio suggests this \(typeName) is a 'Data Bucket'.
             2) Refactor Steps:
                - Convert to a 'Struct' if no identity or reference behavior is needed.
                - Group related properties into nested structs.
@@ -183,16 +190,20 @@ public struct LocalLLMProvider: AIProvider {
             3) Quick Win: Encapsulate related properties into a single 'Configuration' object.
             """
         default:
-            advice = "Local analysis suggests reviewing the SRP (Single Responsibility Principle) for \(className)."
+            advice = "Local analysis suggests reviewing the SRP (Single Responsibility Principle) for \(typeName)."
         }
 
         return AISuggestion(
-            ruleName: rule,
-            className: className,
-            severity: context.issue.severity,
-            diagnosis: diagnosis,
-            modelSource: source,
-            suggestedRefactor: advice
+            metadata: .init(
+                ruleName: rule,
+                typeName: typeName,
+                severity: context.issue.severity
+            ),
+            content: .init(
+                diagnosis: diagnosis,
+                modelSource: source,
+                suggestedRefactor: advice
+            )
         )
     }
 }

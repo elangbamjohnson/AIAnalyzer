@@ -9,57 +9,65 @@ import Foundation
 
 /// `AIConfiguration` encapsulates all runtime settings that control the AI suggestion pipeline.
 public struct AIConfiguration {
+    /// Defines configuration specific to AI service providers (e.g., Gemini, Ollama).
+    public struct AIServiceConfiguration {
+        public let providerType: AIConstants.ProviderType
+        public let model: String
+        public let ollamaModel: String
+        public let ollamaEndpoint: String
+        public let apiKey: String?
+
+        public init(
+            providerType: AIConstants.ProviderType,
+            model: String,
+            ollamaModel: String,
+            ollamaEndpoint: String,
+            apiKey: String?
+        ) {
+            self.providerType = providerType
+            self.model = model
+            self.ollamaModel = ollamaModel
+            self.ollamaEndpoint = ollamaEndpoint
+            self.apiKey = apiKey
+        }
+    }
+
+    /// Defines configuration for local AI models (e.g., Core ML).
+    public struct AILocalModelConfiguration {
+        public let localModelName: String
+        public let localModelPath: String?
+
+        public init(
+            localModelName: String,
+            localModelPath: String?
+        ) {
+            self.localModelName = localModelName
+            self.localModelPath = localModelPath
+        }
+    }
+
     /// Feature flag that enables or disables the AI suggestion layer entirely.
     public let enabled: Bool
-    
-    /// Strategy selector for provider orchestration.
-    public let providerType: AIConstants.ProviderType
-    
-    /// Cloud model identifier used by remote providers (e.g., "gemini-1.5-flash").
-    public let model: String
-
-    /// The human-readable name or identifier for the local model.
-    public let localModelName: String
-
-    /// The model name specifically for Ollama.
-    public let ollamaModel: String
-
-    /// The base URL for the Ollama server.
-    public let ollamaEndpoint: String
-    
-    /// Cloud API key used to authenticate remote requests.
-    public let apiKey: String?
-
-    /// Filesystem path to a local Core ML model artifact.
-    public let localModelPath: String?
-    
+    /// Configuration related to AI service providers.
+    public let serviceConfig: AIServiceConfiguration
+    /// Configuration related to local AI models.
+    public let localModelConfig: AILocalModelConfiguration
     /// Upper bound on AI suggestions generated per analyzed input.
     public let maxSuggestions: Int
-    
     /// Maximum source lines included in the prompt context snippet.
     public let snippetLineLimit: Int
 
     /// Initializes a new AI configuration.
     public init(
         enabled: Bool,
-        providerType: AIConstants.ProviderType,
-        model: String,
-        localModelName: String,
-        ollamaModel: String,
-        ollamaEndpoint: String,
-        apiKey: String?,
-        localModelPath: String?,
+        serviceConfig: AIServiceConfiguration,
+        localModelConfig: AILocalModelConfiguration,
         maxSuggestions: Int,
         snippetLineLimit: Int
     ) {
         self.enabled = enabled
-        self.providerType = providerType
-        self.model = model
-        self.localModelName = localModelName
-        self.ollamaModel = ollamaModel
-        self.ollamaEndpoint = ollamaEndpoint
-        self.apiKey = apiKey
-        self.localModelPath = localModelPath
+        self.serviceConfig = serviceConfig
+        self.localModelConfig = localModelConfig
         self.maxSuggestions = maxSuggestions
         self.snippetLineLimit = snippetLineLimit
     }
@@ -90,15 +98,22 @@ public struct AIConfiguration {
         let maxSuggestions = Int(env["AI_MAX_SUGGESTIONS"] ?? "") ?? AIConstants.Defaults.maxSuggestions
         let snippetLineLimit = Int(env["AI_SNIPPET_LINES"] ?? "") ?? AIConstants.Defaults.snippetLineLimit
 
-        return AIConfiguration(
-            enabled: enabled,
+        let serviceConfig = AIServiceConfiguration(
             providerType: providerType,
             model: model,
-            localModelName: localModelName,
             ollamaModel: ollamaModel,
             ollamaEndpoint: ollamaEndpoint,
-            apiKey: apiKey,
-            localModelPath: localModelPath,
+            apiKey: apiKey
+        )
+        let localModelConfig = AILocalModelConfiguration(
+            localModelName: localModelName,
+            localModelPath: localModelPath
+        )
+
+        return AIConfiguration(
+            enabled: enabled,
+            serviceConfig: serviceConfig,
+            localModelConfig: localModelConfig,
             maxSuggestions: maxSuggestions,
             snippetLineLimit: snippetLineLimit
         )

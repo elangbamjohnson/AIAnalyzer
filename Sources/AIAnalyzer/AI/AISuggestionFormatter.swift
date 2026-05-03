@@ -26,13 +26,13 @@ enum AISuggestionFormatter {
     ///   - verbose: Whether to include the raw AI output and more lines for generic suggestions.
     /// - Returns: A formatted string suitable for the terminal.
     static func format(_ suggestion: AISuggestion, verbose: Bool) -> String {
-        let parsed = parseSections(from: suggestion.suggestedRefactor)
+        let parsed = parseSections(from: suggestion.content.suggestedRefactor)
         var lines: [String] = []
 
-        lines.append("\(suggestion.severity.rawValue) \(severityLabel(suggestion.severity)) [\(suggestion.ruleName)]")
-        lines.append("Class      : \(suggestion.className)")
-        lines.append("Model      : \(suggestion.modelSource)")
-        lines.append("Diagnosis  : \(clean(suggestion.diagnosis))")
+        lines.append("\(suggestion.metadata.severity.rawValue) \(severityLabel(suggestion.metadata.severity)) [\(suggestion.metadata.ruleName)]")
+        lines.append("Type       : \(suggestion.metadata.typeName)")
+        lines.append("Model      : \(suggestion.content.modelSource)")
+        lines.append("Diagnosis  : \(clean(suggestion.content.diagnosis))")
         lines.append("")
 
         if !parsed.rootCause.isEmpty {
@@ -54,7 +54,7 @@ enum AISuggestionFormatter {
         }
 
         if parsed.isEmpty {
-            let compact = compactLines(suggestion.suggestedRefactor, maxLines: verbose ? 20 : 8)
+            let compact = compactLines(suggestion.content.suggestedRefactor, maxLines: verbose ? 20 : 8)
             lines.append("Suggestion")
             lines.append(contentsOf: compact.map { "- \($0)" })
             if !verbose && compact.count >= 8 {
@@ -65,7 +65,7 @@ enum AISuggestionFormatter {
 
         if verbose {
             lines.append("Raw AI Output")
-            lines.append(clean(suggestion.suggestedRefactor))
+            lines.append(clean(suggestion.content.suggestedRefactor))
             lines.append("")
         }
 

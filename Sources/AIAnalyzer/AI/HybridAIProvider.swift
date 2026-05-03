@@ -118,20 +118,25 @@ public struct HybridAIProvider: AIProvider {
     private func isHighConfidence(_ suggestion: AISuggestion) -> Bool {
         // Simple heuristic: if the suggested refactor is less than 50 characters, 
         // it's likely not detailed enough.
-        return suggestion.suggestedRefactor.count > 50 && !suggestion.diagnosis.contains("Stub")
+        return suggestion.content.suggestedRefactor.count > 50 && !suggestion.content.diagnosis.contains("Stub")
     }
 
     /// Creates a static safety-net suggestion when both local and cloud provider calls fail.
     /// - Parameter context: Original request context.
     /// - Returns: Minimal but actionable fallback guidance.
     private func fallbackSuggestion(for context: AIRequestContext) -> AISuggestion {
+        let typeName = context.classInfo?.name ?? "UnknownType"
         return AISuggestion(
-            ruleName: context.issue.ruleName,
-            className: context.classInfo?.name ?? "Unknown",
-            severity: context.issue.severity,
-            diagnosis: "Analysis provided via basic static fallback.",
-            modelSource: "Static Fallback Engine",
-            suggestedRefactor: "Please review the SRP and architectural limits for \(context.issue.ruleName). Detailed AI suggestions are currently unavailable."
+            metadata: .init(
+                ruleName: context.issue.ruleName,
+                typeName: typeName,
+                severity: context.issue.severity
+            ),
+            content: .init(
+                diagnosis: "Analysis provided via basic static fallback.",
+                modelSource: "Static Fallback Engine",
+                suggestedRefactor: "Please review the SRP and architectural limits for \(context.issue.ruleName). Detailed AI suggestions are currently unavailable."
+            )
         )
     }
 }

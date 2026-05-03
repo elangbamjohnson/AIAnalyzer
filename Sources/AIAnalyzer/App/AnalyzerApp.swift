@@ -154,35 +154,35 @@ struct AnalyzerApp {
 
         let provider: AIProvider
 
-        switch configuration.providerType {
+        switch configuration.serviceConfig.providerType {
         case .gemini:
-            guard let apiKey = configuration.apiKey, !apiKey.isEmpty else {
-                print("⚠️ AI is set to 'gemini' but GEMINI_API_KEY is missing.")
+            guard let apiKey = configuration.serviceConfig.apiKey, !apiKey.isEmpty else {
+                print("⚠️ AI is set to \'gemini\' but GEMINI_API_KEY is missing.")
                 return nil
             }
-            provider = GeminiProvider(apiKey: apiKey, model: configuration.model)
+            provider = GeminiProvider(apiKey: apiKey, model: configuration.serviceConfig.model)
 
         case .ollama:
-            provider = OllamaProvider(endpoint: configuration.ollamaEndpoint, modelName: configuration.ollamaModel)
+            provider = OllamaProvider(endpoint: configuration.serviceConfig.ollamaEndpoint, modelName: configuration.serviceConfig.ollamaModel)
 
         case .local:
             if let warning = Self.localProviderCoreMLDiagnostics(configuration: configuration) {
                 print(warning)
             }
-            provider = LocalLLMProvider(modelPath: configuration.localModelPath, modelName: configuration.localModelName)
+            provider = LocalLLMProvider(modelPath: configuration.localModelConfig.localModelPath, modelName: configuration.localModelConfig.localModelName)
 
         case .hybrid:
             let cloud: AIProvider?
-            if let apiKey = configuration.apiKey, !apiKey.isEmpty {
-                cloud = GeminiProvider(apiKey: apiKey, model: configuration.model)
+            if let apiKey = configuration.serviceConfig.apiKey, !apiKey.isEmpty {
+                cloud = GeminiProvider(apiKey: apiKey, model: configuration.serviceConfig.model)
             } else {
                 cloud = nil
                 print("ℹ️ Hybrid mode running without GEMINI_API_KEY. Using local fallback path.")
             }
 
             // Prefer Ollama as the local tier in Hybrid mode
-            let localPreferred = OllamaProvider(endpoint: configuration.ollamaEndpoint, modelName: configuration.ollamaModel)
-            let localFallback = LocalLLMProvider(modelPath: nil, modelName: configuration.localModelName, failIfStub: false)
+            let localPreferred = OllamaProvider(endpoint: configuration.serviceConfig.ollamaEndpoint, modelName: configuration.serviceConfig.ollamaModel)
+            let localFallback = LocalLLMProvider(modelPath: nil, modelName: configuration.localModelConfig.localModelName, failIfStub: false)
 
             provider = HybridAIProvider(
                 localPreferred: localPreferred,
@@ -202,7 +202,7 @@ struct AnalyzerApp {
 
     /// Explains why `AI_PROVIDER=local` may still show heuristic output (Core ML vs Ollama).
     private static func localProviderCoreMLDiagnostics(configuration: AIConfiguration) -> String? {
-        guard let path = configuration.localModelPath else {
+        guard let path = configuration.localModelConfig.localModelPath else {
             return """
             ⚠️ AI_PROVIDER=local uses Core ML only (`LocalLLMProvider`), not Ollama.
                `AI_LOCAL_MODEL` is only a label; without a valid `AI_LOCAL_MODEL_PATH` (.mlmodelc), you get rule-based heuristics.

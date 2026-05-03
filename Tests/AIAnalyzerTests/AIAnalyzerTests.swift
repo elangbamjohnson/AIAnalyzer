@@ -119,15 +119,42 @@ struct VisitorTests {
     }
 }
 
+@Suite("Visitor Struct Tests")
+struct VisitorStructTests {
+    @Test func testStructDetection() {
+        let source = """
+        struct MyStruct {
+            var a: Int = 1
+            var b: Int = 2
+            func process() {}
+        }
+        """
+        
+        let sourceFile = Parser.parse(source: source)
+        let visitor = ClassVisitor(viewMode: .all)
+        visitor.walk(sourceFile)
+        
+        #expect(visitor.classes.count == 1)
+        let info = visitor.classes[0]
+        #expect(info.name == "MyStruct")
+        #expect(info.propertyCount == 2)
+        #expect(info.methodCount == 1)
+    }
+}
+
 private struct MockAIProvider: AIProvider {
     func suggest(for context: AIRequestContext) async throws -> AISuggestion {
         AISuggestion(
-            ruleName: context.issue.ruleName,
-            className: context.classInfo?.name ?? "UnknownClass",
-            severity: context.issue.severity,
-            diagnosis: "mock diagnosis",
-            modelSource: "MockProvider",
-            suggestedRefactor: "mock refactor"
+            metadata: .init(
+                ruleName: context.issue.ruleName,
+                typeName: context.classInfo?.name ?? "UnknownClass",
+                severity: context.issue.severity
+            ),
+            content: .init(
+                diagnosis: "mock diagnosis",
+                modelSource: "MockProvider",
+                suggestedRefactor: "mock refactor"
+            )
         )
     }
 }
@@ -145,12 +172,16 @@ private struct StaticAIProvider: AIProvider {
 
     func suggest(for context: AIRequestContext) async throws -> AISuggestion {
         AISuggestion(
-            ruleName: context.issue.ruleName,
-            className: context.classInfo?.name ?? "UnknownClass",
-            severity: context.issue.severity,
-            diagnosis: diagnosis,
-            modelSource: source,
-            suggestedRefactor: suggestedRefactor
+            metadata: .init(
+                ruleName: context.issue.ruleName,
+                typeName: context.classInfo?.name ?? "UnknownClass",
+                severity: context.issue.severity
+            ),
+            content: .init(
+                diagnosis: diagnosis,
+                modelSource: source,
+                suggestedRefactor: suggestedRefactor
+            )
         )
     }
 }
@@ -173,8 +204,8 @@ struct AISuggesterTests {
         )
 
         #expect(suggestions.count == 1)
-        #expect(!suggestions.map(\.ruleName).contains("WarnRule"))
-        #expect(suggestions.map(\.ruleName).contains("CriticalRule"))
+        #expect(!suggestions.map(\.metadata.ruleName).contains("WarnRule"))
+        #expect(suggestions.map(\.metadata.ruleName).contains("CriticalRule"))
     }
 
     @Test func testGeneratesPerClassSuggestionsAcrossDifferentClasses() async {
@@ -196,8 +227,8 @@ struct AISuggesterTests {
         )
 
         #expect(suggestions.count == 2)
-        #expect(suggestions.map(\.ruleName).contains("DemoCritical"))
-        #expect(suggestions.map(\.ruleName).contains("WorkerWarn"))
+        #expect(suggestions.map(\.metadata.ruleName).contains("DemoCritical"))
+        #expect(suggestions.map(\.metadata.ruleName).contains("WorkerWarn"))
     }
 }
 
@@ -209,38 +240,38 @@ struct HybridAIProviderTests {
         sourceSnippet: "class Demo {}"
     )
 
-    @Test func testCloudFirstUsesCloudWhenAvailable() async throws {
-        let localPreferred = StaticAIProvider(diagnosis: "Local diagnosis", suggestedRefactor: "Local recommendation")
+    @Test func testLocalFirstUsesCloudWhenLocalConfidenceIsLow() async throws {
+        let lowConfidenceLocal = StaticAIProvider(diagnosis: "Local low confidence", suggestedRefactor: "too short")
         let cloud = StaticAIProvider(diagnosis: "Cloud diagnosis", suggestedRefactor: "Detailed cloud recommendation for reliable fallback behavior.")
         let localFallback = StaticAIProvider(diagnosis: "Fallback diagnosis", suggestedRefactor: "Fallback recommendation text")
 
         let provider = HybridAIProvider(
-            localPreferred: localPreferred,
+            localPreferred: lowConfidenceLocal,
             localFallback: localFallback,
             cloud: cloud,
-            preferLocal: false
+            preferLocal: true
         )
 
         let suggestion = try await provider.suggest(for: demoContext)
-        #expect(suggestion.diagnosis == "Cloud diagnosis")
+        #expect(suggestion.content.diagnosis == "Cloud diagnosis")
     }
 
-    @Test func testCloudFirstWithoutCloudFallsBackToLocalProvider() async throws {
-        let localPreferred = ThrowingAIProvider()
+    @Test func testLocalFirstWithoutCloudFallsBackToLocalProvider() async throws {
+        let failingLocal = ThrowingAIProvider()
         let localFallback = StaticAIProvider(
             diagnosis: "Local fallback diagnosis",
             suggestedRefactor: "A long and explicit local fallback recommendation with enough detail."
         )
 
         let provider = HybridAIProvider(
-            localPreferred: localPreferred,
+            localPreferred: failingLocal,
             localFallback: localFallback,
             cloud: nil,
-            preferLocal: false
+            preferLocal: true
         )
 
         let suggestion = try await provider.suggest(for: demoContext)
-        #expect(suggestion.diagnosis == "Local fallback diagnosis")
+        #expect(suggestion.content.diagnosis == "Local fallback diagnosis")
     }
 }
 

@@ -40,17 +40,21 @@ public struct GeminiProvider: AIProvider {
     /// - Returns: An `AISuggestion` populated with the API response.
     /// - Throws: `AIProviderError` on failure.
     public func suggest(for context: AIRequestContext) async throws -> AISuggestion {
-        let className = context.classInfo?.name ?? "UnknownClass"
+        let typeName = context.classInfo?.name ?? "UnknownType"
         let prompt = context.buildPrompt()
         let responseText = try await callGemini(prompt: prompt)
 
         return AISuggestion(
-            ruleName: context.issue.ruleName,
-            className: className,
-            severity: context.issue.severity,
-            diagnosis: "AI analysis generated for \(context.issue.ruleName).",
-            modelSource: "Cloud (Gemini: \(model))",
-            suggestedRefactor: responseText
+            metadata: .init(
+                ruleName: context.issue.ruleName,
+                typeName: typeName,
+                severity: context.issue.severity
+            ),
+            content: .init(
+                diagnosis: "AI analysis generated for \(context.issue.ruleName).",
+                modelSource: "Cloud (Gemini: \(model))",
+                suggestedRefactor: responseText
+            )
         )
     }
 

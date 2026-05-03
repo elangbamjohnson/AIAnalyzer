@@ -16,24 +16,31 @@ public class ClassVisitor: SyntaxVisitor {
     /// - Parameter node: The syntax node representing the class declaration.
     /// - Returns: A kind indicating whether to continue visiting children.
     public override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
-        // Extract the class name
-        let className = node.identifier.text
-        
-        // Count methods defined in the class
-        let methods = node.members.members.compactMap { member in
+        processType(name: node.identifier.text, members: node.members.members, node: node)
+        return .visitChildren
+    }
+    
+    public override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
+        processType(name: node.identifier.text, members: node.members.members, node: node)
+        return .visitChildren
+    }
+    
+    private func processType(name: String, members: MemberDeclListSyntax, node: SyntaxProtocol) {
+        // Count methods defined in the class/struct
+        let methods = members.compactMap { member in
             member.decl.as(FunctionDeclSyntax.self)
         }
         
         // Count individual property bindings (handles 'var a, b: Int')
-        let properties = node.members.members.compactMap { member in
+        let properties = members.compactMap { member in
             member.decl.as(VariableDeclSyntax.self)
         }.flatMap { $0.bindings }.count
         
         // Estimate the number of lines, excluding leading trivia (license headers, etc.)
         let lineCount = node.withoutLeadingTrivia().description.components(separatedBy: CharacterSet.newlines).count
         
-        // Determine the class type based on naming conventions
-        let nameLower = className.lowercased()
+        // Determine the type based on naming conventions
+        let nameLower = name.lowercased()
         let type: ClassInfo.ClassType
         if nameLower.contains("viewcontroller") {
             type = .viewController
@@ -50,14 +57,12 @@ public class ClassVisitor: SyntaxVisitor {
         // Store the collected metrics
         let info = ClassInfo(
             type: type,
-            name: className,
+            name: name,
             methodCount: methods.count,
             propertyCount: properties,
             lineCount: lineCount
         )
         
         classes.append(info)
-        
-        return .visitChildren
     }
 }
