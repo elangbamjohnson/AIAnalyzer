@@ -26,3 +26,8 @@ jobs:
 
       - name: Test
         run: swift test -v
+
+      - name: Smoke — run analyzer on fixture (AI off)
+        env:
+          AI_ENABLED: "false"
+        run: swift run AIAnalyzer Fixtures/SmokeSample.swift
