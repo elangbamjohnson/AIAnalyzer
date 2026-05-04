@@ -18,7 +18,7 @@ struct AnalyzerApp {
     /// - optionally enriches results with AI suggestions
     /// - emits per-file and summary reports
     static func main() async {
-        let (isJsonMode, inputPath) = parseCLIArguments()
+        let (isJsonMode, isXcodeMode, inputPath) = parseCLIArguments()
         let fullPath = URL(fileURLWithPath: inputPath).standardized.path
         
         var isDirectory: ObjCBool = false
@@ -83,7 +83,7 @@ struct AnalyzerApp {
         }
         
         let engine = RuleEngine(rules: rules)
-        let reporter: Reporter = ConsoleReporter()
+        let reporter: Reporter = isXcodeMode ? XcodeReporter(rootPath: rootPath) : ConsoleReporter()
         EnvironmentFileLoader.apply(fromRootPath: rootPath)
         let aiConfiguration = AIConfiguration.fromEnvironment()
         
@@ -159,18 +159,19 @@ struct AnalyzerApp {
     }
 
     /// Parses command-line arguments and validates required positional input.
-    private static func parseCLIArguments() -> (isJsonMode: Bool, inputPath: String) {
+    private static func parseCLIArguments() -> (isJsonMode: Bool, isXcodeMode: Bool, inputPath: String) {
         let arguments = Array(CommandLine.arguments.dropFirst())
         let isJsonMode = arguments.contains("--json")
+        let isXcodeMode = arguments.contains("--xcode")
         let positional = arguments.filter { !$0.hasPrefix("--") }
 
         guard let inputPath = positional.first else {
-            let usage = "Usage: swift run AIAnalyzer <file.swift | folder> [--json]"
+            let usage = "Usage: swift run AIAnalyzer <file.swift | folder> [--json] [--xcode]"
             emitError(usage, isJsonMode: isJsonMode)
             exit(1)
         }
 
-        return (isJsonMode, inputPath)
+        return (isJsonMode, isXcodeMode, inputPath)
     }
 
     /// Emits errors to stderr in JSON mode to avoid corrupting machine-readable stdout.
