@@ -15,6 +15,8 @@ public struct AnalyzerConfig: Codable {
         public var highMethodDensity: RuleToggle?
         public var godObject: RuleToggle?
         public var dataHeavyClass: RuleToggle?
+        /// MVVM architectural rule: flags ViewModel types that import UIKit.
+        public var viewModelUIKit: RuleToggle?
     }
     
     public struct RuleToggle: Codable {

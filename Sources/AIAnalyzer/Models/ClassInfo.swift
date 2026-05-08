@@ -56,6 +56,10 @@ public struct ClassInfo {
     /// Approximate member ranges (relative to the start of the type block).
     public let memberInfos: [MemberInfo]
     
+    /// The list of module names imported at the top of the file where this class is declared.
+    /// Used by architectural rules to detect forbidden framework dependencies.
+    public let imports: [String]
+    
     /// Initializes a new ClassInfo instance with the provided metrics.
     /// Backwards-compatible initializer: new parameters have sensible defaults so existing call sites do not break.
     /// - Parameters:
@@ -68,6 +72,7 @@ public struct ClassInfo {
     ///   - subscriptCount: Count of subscript declarations.
     ///   - accessorCount: Count of accessors (computed properties).
     ///   - memberInfos: Per-member approximate ranges.
+    ///   - imports: Module names imported in the file where this class is declared.
     public init(
         type: ClassType = .unknown,
         name: String,
@@ -77,7 +82,8 @@ public struct ClassInfo {
         initializerCount: Int = 0,
         subscriptCount: Int = 0,
         accessorCount: Int = 0,
-        memberInfos: [MemberInfo] = []
+        memberInfos: [MemberInfo] = [],
+        imports: [String] = []
     ) {
         self.type = type
         self.name = name
@@ -88,5 +94,6 @@ public struct ClassInfo {
         self.accessorCount = accessorCount
         self.lineCount = lineCount
         self.memberInfos = memberInfos
+        self.imports = imports
     }
 }

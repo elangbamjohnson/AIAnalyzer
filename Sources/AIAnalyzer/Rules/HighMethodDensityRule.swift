@@ -63,7 +63,7 @@ public struct HighMethodDensityRule: Rule {
         
         return Issue(
             ruleName: name,
-            message: "Class \(classInfo.name) has high method density (\(classInfo.methodCount) methods). Consider splitting into multiple responsibilities.",
+            message: "Type \(classInfo.name) has high method density (\(classInfo.methodCount) methods). Consider splitting into multiple responsibilities.",
             severity: severity,
             line: nil
         )

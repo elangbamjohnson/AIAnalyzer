@@ -6,6 +6,7 @@
 //
 import Foundation
 import SwiftParser
+import SwiftSyntax
 
 /// Command-line entry point that coordinates scanning, analysis, reporting, and AI suggestions.
 @main
@@ -84,6 +85,10 @@ struct AnalyzerApp {
             rules.append(DataHeavyClassRule(threshold: threshold))
         }
         
+        if config.rules?.viewModelUIKit?.enabled == true {
+            rules.append(ViewModelUIKitRule())
+        }
+        
         let engine = RuleEngine(rules: rules)
         let reporter: Reporter = isXcodeMode ? XcodeReporter(rootPath: rootPath) : ConsoleReporter()
         let aiConfiguration = AIConfiguration.fromEnvironment()
@@ -101,7 +106,22 @@ struct AnalyzerApp {
                 let source = try String(contentsOf: URL(fileURLWithPath: filePath), encoding: .utf8)
                 let sourceFile = Parser.parse(source: source)
                 
-                let visitor = ClassVisitor(viewMode: .all)
+                // Pre-pass: extract top-level import names from the syntax tree.
+                // Doing this separately avoids traversal-ordering issues with the
+                // SyntaxVisitor approach on SwiftSyntax 508.
+                let fileImports: [String] = sourceFile.statements.compactMap { item in
+                    if case .decl(let decl) = item.item,
+                       let importDecl = decl.as(ImportDeclSyntax.self) {
+                        return importDecl.path.tokens(viewMode: .fixedUp)
+                            .map { $0.text }
+                            .joined()
+                    }
+                    return nil
+                }
+                
+
+
+                let visitor = ClassVisitor(viewMode: .all, fileImports: fileImports)
                 visitor.walk(sourceFile)
                 
                 let fileName = URL(fileURLWithPath: filePath).lastPathComponent

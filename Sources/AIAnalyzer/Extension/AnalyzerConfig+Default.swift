@@ -29,6 +29,10 @@ extension AnalyzerConfig {
                 dataHeavyClass: RuleToggle(
                     enabled: true,
                     threshold: RuleConstants.dataHeavyClassThreshold
+                ),
+                viewModelUIKit: RuleToggle(
+                    enabled: true,
+                    threshold: nil
                 )
             )
         )

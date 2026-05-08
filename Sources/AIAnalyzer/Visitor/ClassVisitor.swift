@@ -12,6 +12,20 @@ public class ClassVisitor: SyntaxVisitor {
     /// A collection of information about all classes encountered during the visit.
     public var classes: [ClassInfo] = []
     
+    /// Module names imported in this file, pre-collected before the walk begins.
+    /// Injected at init so the visitor doesn't have to depend on traversal ordering.
+    private let fileImports: [String]
+    
+    /// - Parameter fileImports: List of module names already extracted from the file's
+    ///   top-level import declarations. Defaults to empty for call sites that don't need
+    ///   architectural analysis.
+    public init(viewMode: SyntaxTreeViewMode, fileImports: [String] = []) {
+        self.fileImports = fileImports
+        super.init(viewMode: viewMode)
+    }
+    
+    // MARK: - Type visitors
+    
     /// Called when the visitor encounters a class declaration.
     /// - Parameter node: The syntax node representing the class declaration.
     /// - Returns: A kind indicating whether to continue visiting children.
@@ -22,6 +36,22 @@ public class ClassVisitor: SyntaxVisitor {
     
     public override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
         processType(name: node.identifier.text, members: node.members.members, node: node)
+        return .visitChildren
+    }
+
+    public override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
+        processType(name: node.identifier.text, members: node.members.members, node: node)
+        return .visitChildren
+    }
+
+    public override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
+        processType(name: node.identifier.text, members: node.members.members, node: node)
+        return .visitChildren
+    }
+
+    public override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        let name = node.extendedType.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        processType(name: name, members: node.members.members, node: node)
         return .visitChildren
     }
     
@@ -110,7 +140,8 @@ public class ClassVisitor: SyntaxVisitor {
             initializerCount: initializers,
             subscriptCount: subscripts,
             accessorCount: accessorCount,
-            memberInfos: memberInfos
+            memberInfos: memberInfos,
+            imports: fileImports
         )
         
         classes.append(info)

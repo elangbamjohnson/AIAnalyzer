@@ -74,6 +74,13 @@ class ConfigLoader {
                 mergedRules.dataHeavyClass = current
             }
 
+            // viewModelUIKit
+            if let userVMUIKit = userRules.viewModelUIKit {
+                var current = mergedRules.viewModelUIKit ?? AnalyzerConfig.RuleToggle()
+                if let enabled = userVMUIKit.enabled { current.enabled = enabled }
+                mergedRules.viewModelUIKit = current
+            }
+
             config.rules = mergedRules
         }
         
