@@ -20,10 +20,8 @@ public struct XcodeReporter: Reporter {
             switch issue.severity {
             case .critical:
                 xcodeSeverity = "error"
-            case .warning:
+            case .warning, .info:
                 xcodeSeverity = "warning"
-            case .info:
-                xcodeSeverity = "note"
             }
 
             // Print in Xcode-compatible format

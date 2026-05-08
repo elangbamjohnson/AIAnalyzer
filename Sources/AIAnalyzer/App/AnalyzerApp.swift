@@ -40,6 +40,8 @@ struct AnalyzerApp {
         let rootPath = isDirectory.boolValue
             ? fullPath
             : URL(fileURLWithPath: fullPath).deletingLastPathComponent().path
+
+        EnvironmentFileLoader.apply(fromRootPath: rootPath)
         
         let config = ConfigLoader.load(from: rootPath)
         
@@ -47,18 +49,18 @@ struct AnalyzerApp {
         let filePaths: [String]
         
         if isDirectory.boolValue {
-            if !isJsonMode { print("📂 Scanning folder: \(fullPath)") }
+            if !isJsonMode && !isXcodeMode { print("📂 Scanning folder: \(fullPath)") }
             filePaths = FileScanner.getSwiftFiles(in: fullPath, ignoring: config.ignoreDirectories)
         } else {
             filePaths = [fullPath]
         }
         
         guard !filePaths.isEmpty else {
-            if !isJsonMode { print("⚠️ No Swift files found.") }
+            if !isJsonMode && !isXcodeMode { print("⚠️ No Swift files found.") }
             exit(0)
         }
         
-        if !isJsonMode { print("📊 Found \(filePaths.count) Swift files\n") }
+        if !isJsonMode && !isXcodeMode { print("📊 Found \(filePaths.count) Swift files\n") }
         
         // 4. Build rules from config
         var rules: [Rule] = []
@@ -84,7 +86,6 @@ struct AnalyzerApp {
         
         let engine = RuleEngine(rules: rules)
         let reporter: Reporter = isXcodeMode ? XcodeReporter(rootPath: rootPath) : ConsoleReporter()
-        EnvironmentFileLoader.apply(fromRootPath: rootPath)
         let aiConfiguration = AIConfiguration.fromEnvironment()
         
         var summary = AnalysisSummary()
@@ -133,7 +134,15 @@ struct AnalyzerApp {
                             classes: visitor.classes,
                             sourceCode: source
                         )
-                        reportAISuggestions(suggestions, file: fileName)
+                        if isXcodeMode {
+                            reportAISuggestionsForXcode(
+                                suggestions,
+                                issues: issues,
+                                filePath: filePath
+                            )
+                        } else {
+                            reportAISuggestions(suggestions, file: fileName)
+                        }
                     }
                 }
                 
@@ -298,6 +307,35 @@ struct AnalyzerApp {
         }
     }
 
+    /// Emits AI suggestions as Xcode-compatible notes so they show up in Issues.
+    ///
+    /// Format: `<absolute-path>:<line>: note: [AIAnalyzer][AI] ...`
+    /// This keeps static findings as warning/error while surfacing AI guidance alongside them.
+    private static func reportAISuggestionsForXcode(
+        _ suggestions: [AISuggestion],
+        issues: [Issue],
+        filePath: String
+    ) {
+        guard !suggestions.isEmpty else {
+            return
+        }
+
+        for suggestion in suggestions {
+            let matchedIssueLine = issues.first(where: { issue in
+                issue.ruleName == suggestion.metadata.ruleName &&
+                issue.message.contains(suggestion.metadata.typeName)
+            })?.line ?? 1
+
+            let diagnosis = suggestion.content.diagnosis
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let safeDiagnosis = diagnosis.isEmpty ? "AI suggestion generated." : diagnosis
+            let note = "[AIAnalyzer][AI][\(suggestion.metadata.ruleName)] \(safeDiagnosis)"
+            print("\(filePath):\(matchedIssueLine): note: \(note)")
+        }
+    }
+
     /// Renders text with a typewriter effect to improve readability in CLI output.
     /// - Parameters:
     ///   - text: Content to print.
@@ -317,25 +355,75 @@ struct AnalyzerApp {
 
 /// Loads project-level environment values from `.aianalyzer.env`.
 ///
-/// This allows users to keep AI runtime settings in one file instead of exporting shell
-/// variables manually every run.
+/// Walks upward from the scan root so CLI runs from `tools/AIAnalyzer` still pick up the repo-level
+/// file. If multiple ancestor directories contain this file, only the **outermost** (closest to the
+/// filesystem root) is applied so there is a single source of truth per clone.
 private enum EnvironmentFileLoader {
     private static let fileName = ".aianalyzer.env"
 
+    /// Nearest to the scan root first; outermost (repository-level) last.
+    private static func envFileChain(fromRootPath rootPath: String) -> [URL] {
+        var found: [URL] = []
+        var current = URL(fileURLWithPath: rootPath).standardizedFileURL
+
+        while true {
+            let candidate = current.appendingPathComponent(fileName)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                found.append(candidate)
+            }
+
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path {
+                break
+            }
+            current = parent
+        }
+
+        return found
+    }
+
     static func apply(fromRootPath rootPath: String) {
-        let fileURL = URL(fileURLWithPath: rootPath).appendingPathComponent(fileName)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        let chain = envFileChain(fromRootPath: rootPath)
+        guard let outermost = chain.last else {
             return
         }
 
-        guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
-            print("⚠️ Could not read \(fileName); continuing with shell environment variables.")
+        if chain.count > 1 {
+            let ignored = chain.dropLast().map(\.path).joined(separator: ", ")
+            print("warning: [AIAnalyzer] Multiple .aianalyzer.env files found; ignoring nested: \(ignored)")
+        }
+
+        guard let contents = try? String(contentsOf: outermost, encoding: .utf8) else {
+            print("⚠️ Could not read \(outermost.path); continuing with shell environment variables.")
             return
         }
 
-        for (key, value) in parse(contents: contents) {
+        let entries = parse(contents: contents)
+        let keysFromFile = Set(entries.map(\.0))
+
+        for (key, value) in entries {
             setenv(key, value, 1)
         }
+
+        let providerLabel = getenvString("AI_PROVIDER") ?? "unset"
+        let providerSource: String
+        if keysFromFile.contains("AI_PROVIDER") {
+            providerSource = "source: env file"
+        } else if providerLabel != "unset" {
+            providerSource = "source: inherited from environment (not set in this file)"
+        } else {
+            providerSource = "source: unset (AIConfiguration defaults to gemini when absent)"
+        }
+
+        print(
+            "warning: [AIAnalyzer] Loaded env from \(outermost.path) "
+                + "(AI_PROVIDER=\(providerLabel); \(providerSource); envLogFmt=v2)"
+        )
+    }
+
+    private static func getenvString(_ name: String) -> String? {
+        guard let ptr = getenv(name) else { return nil }
+        return String(cString: ptr)
     }
 
     private static func parse(contents: String) -> [(String, String)] {

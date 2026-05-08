@@ -72,31 +72,39 @@ public struct AIConfiguration {
         self.snippetLineLimit = snippetLineLimit
     }
 
+    /// Prefer live process environment (`getenv`) so values applied via `setenv` (e.g. from `.aianalyzer.env`)
+    /// are visible here; fall back to `ProcessInfo` snapshot when unset at the C layer.
+    private static func environmentValue(for key: String) -> String? {
+        if let ptr = getenv(key) {
+            return String(cString: ptr)
+        }
+        return ProcessInfo.processInfo.environment[key]
+    }
+
     /// Factory method that creates a configuration by reading environment variables.
     public static func fromEnvironment() -> AIConfiguration {
-        let env = ProcessInfo.processInfo.environment
-        let enabled = (env["AI_ENABLED"] ?? "false").lowercased() == "true"
-        
-        let providerRaw = env["AI_PROVIDER"] ?? "gemini"
+        let enabled = (environmentValue(for: "AI_ENABLED") ?? "false").lowercased() == "true"
+
+        let providerRaw = environmentValue(for: "AI_PROVIDER") ?? "gemini"
         let providerType = AIConstants.ProviderType(rawValue: providerRaw.lowercased()) ?? .gemini
-        
+
         // 1. Resolve and normalize Cloud Model (Gemini).
-        let rawModel = env["AI_MODEL"] ?? "gemini-1.5-flash"
+        let rawModel = environmentValue(for: "AI_MODEL") ?? "gemini-1.5-flash"
         let model = normalizeGeminiModel(rawModel)
-        
+
         // 2. Resolve Local Model Name
-        let localModelName = env["AI_LOCAL_MODEL"] ?? AIConstants.Local.defaultModelName
-        
+        let localModelName = environmentValue(for: "AI_LOCAL_MODEL") ?? AIConstants.Local.defaultModelName
+
         // 3. Resolve Ollama settings (accept full chat URL or base host only).
-        let ollamaModel = env["OLLAMA_MODEL"] ?? AIConstants.Ollama.defaultModelName
-        let rawOllamaEndpoint = env["OLLAMA_ENDPOINT"] ?? AIConstants.Ollama.endpointBase
+        let ollamaModel = environmentValue(for: "OLLAMA_MODEL") ?? AIConstants.Ollama.defaultModelName
+        let rawOllamaEndpoint = environmentValue(for: "OLLAMA_ENDPOINT") ?? AIConstants.Ollama.endpointBase
         let ollamaEndpoint = normalizeOllamaEndpoint(rawOllamaEndpoint)
 
-        let apiKey = env["GEMINI_API_KEY"]
-        let localModelPath = normalizedOptionalPath(env["AI_LOCAL_MODEL_PATH"])
-        
-        let maxSuggestions = Int(env["AI_MAX_SUGGESTIONS"] ?? "") ?? AIConstants.Defaults.maxSuggestions
-        let snippetLineLimit = Int(env["AI_SNIPPET_LINES"] ?? "") ?? AIConstants.Defaults.snippetLineLimit
+        let apiKey = environmentValue(for: "GEMINI_API_KEY")
+        let localModelPath = normalizedOptionalPath(environmentValue(for: "AI_LOCAL_MODEL_PATH"))
+
+        let maxSuggestions = Int(environmentValue(for: "AI_MAX_SUGGESTIONS") ?? "") ?? AIConstants.Defaults.maxSuggestions
+        let snippetLineLimit = Int(environmentValue(for: "AI_SNIPPET_LINES") ?? "") ?? AIConstants.Defaults.snippetLineLimit
 
         let serviceConfig = AIServiceConfiguration(
             providerType: providerType,
