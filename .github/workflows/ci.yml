@@ -4,12 +4,8 @@ name: CI
 on:
   push:
     branches: [main]
-    paths:
-      - 'tools/AIAnalyzer/**'
   pull_request:
     branches: [main]
-    paths:
-      - 'tools/AIAnalyzer/**'
 
 jobs:
   build-test:
@@ -47,8 +43,8 @@ jobs:
         env:
           AI_ENABLED: "false"
         run: |
-          FIXTURE="${{ github.workspace }}/Fixtures/SmokeSample.swift"
-          test -f "$FIXTURE" || { echo "Missing fixture (did you commit Fixtures/SmokeSample.swift?): $FIXTURE"; exit 1; }
+          FIXTURE="Fixtures/SmokeSample.swift"
+          test -f "$FIXTURE" || { echo "Missing fixture: $FIXTURE"; exit 1; }
           OUTPUT="$(swift run AIAnalyzer "$FIXTURE" --json)"
           printf '%s\n' "$OUTPUT" | python3 -m json.tool > /dev/null
           printf '%s\n' "$OUTPUT"
