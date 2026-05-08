@@ -194,12 +194,7 @@ struct AnalyzerApp {
         let isXcodeMode = arguments.contains("--xcode")
         let positional = arguments.filter { !$0.hasPrefix("--") }
 
-        guard let inputPath = positional.first else {
-            let usage = "Usage: swift run AIAnalyzer <file.swift | folder> [--json] [--xcode]"
-            emitError(usage, isJsonMode: isJsonMode)
-            exit(1)
-        }
-
+        let inputPath = positional.first ?? "sample.swift"
         return (isJsonMode, isXcodeMode, inputPath)
     }
 
@@ -393,7 +388,7 @@ private enum EnvironmentFileLoader {
             }
 
             let parent = current.deletingLastPathComponent()
-            if parent.path == current.path {
+            if parent.path == current.path || current.path == "/" {
                 break
             }
             current = parent
