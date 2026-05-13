@@ -94,19 +94,6 @@ swift test --filter Visitor
 
 ---
 
-### 3. Source file headers (convention)
-
-New and reorganized Swift sources in this repo use the same header block as older files, for example:
-
-```text
-//
-//  SomeFile.swift
-//  AIAnalyzer
-//
-//  Created by Johnson Elangbam on DD/MM/YY.
-//
-```
-
 Test sources use **`AIAnalyzerTests`** as the second title line instead of `AIAnalyzer`. Stubs or heavily shared test helpers may include an extra short comment (e.g. purpose of mock providers) **below** the “Created by” line.
 
 ---
