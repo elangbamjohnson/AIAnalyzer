@@ -33,6 +33,10 @@ extension AnalyzerConfig {
                 viewModelUIKit: RuleToggle(
                     enabled: true,
                     threshold: nil
+                ),
+                modelServiceUIKit: RuleToggle(
+                    enabled: true,
+                    threshold: nil
                 )
             )
         )

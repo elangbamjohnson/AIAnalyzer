@@ -88,6 +88,10 @@ struct AnalyzerApp {
         if config.rules?.viewModelUIKit?.enabled == true {
             rules.append(ViewModelUIKitRule())
         }
+
+        if config.rules?.modelServiceUIKit?.enabled == true {
+            rules.append(ModelServiceUIKitRule())
+        }
         
         let engine = RuleEngine(rules: rules)
         let reporter: Reporter = isXcodeMode ? XcodeReporter(rootPath: rootPath) : ConsoleReporter()
