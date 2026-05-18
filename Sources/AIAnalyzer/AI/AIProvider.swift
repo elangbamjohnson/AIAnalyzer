@@ -103,6 +103,7 @@ public struct AIRequestContext {
 /// for translating an `AIRequestContext` into a network request, interacting with a specific
 /// AI API, and returning a structured `AISuggestion`. This abstraction allows the main
 /// app to remain agnostic of the specific AI service being used.
+@available(iOS 13.0.0, *)
 public protocol AIProvider {
     /// Requests a refactoring suggestion based on the provided context.
     /// - Parameter context: The issue and source code details.

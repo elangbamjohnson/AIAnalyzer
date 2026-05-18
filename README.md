@@ -1,8 +1,100 @@
-0# AIAnalyzer — Project Handbook
+# AIAnalyzer — Project Handbook
 
 AIAnalyzer is a **macOS command-line static analyzer for Swift**. It parses Swift source with **SwiftSyntax**, extracts structural metrics per type (class, struct, enum, actor, extension), runs a **pluggable rule engine**, optionally enriches **warning** and **critical** findings with **LLM-backed refactoring suggestions**, and prints results for humans (console), machines (`--json`), or Xcode (`--xcode`).
 
 This document is the authoritative reference for architecture, data flow, configuration, and the AI layer.
+
+---
+
+## Recent updates (read this first)
+
+This section describes **material changes** to the codebase and how they affect you as a reader, contributor, or integrator. Earlier sections of the handbook remain the deep reference; here the focus is on **what is new** and **where to look**.
+
+### 1. Model / Service UIKit layering rule (`ModelServiceUIKitRule`)
+
+A new architectural rule enforces **separation between UI frameworks and non-UI layers** for types the analyzer classifies as **models** or **services** (using the same **name-based heuristics** as `ClassVisitor`, not full type-resolution).
+
+| Aspect | Detail |
+|--------|--------|
+| **Source file** | `Sources/AIAnalyzer/Rules/ModelServiceUIKitRule.swift` |
+| **Rule identifier (`Issue.ruleName`)** | `ModelServiceUIKitViolation` |
+| **Default** | **Enabled** in `AnalyzerConfig.default` (same pattern as `viewModelUIKit`). |
+| **JSON toggle** | Under `rules`, key **`modelServiceUIKit`**, shape: `{ "enabled": true }` (optional; threshold is not used). |
+| **When it fires** | The type’s `ClassInfo.type` is **`.model`** *or* **`.service`**, **and** the file’s import list (attached to every `ClassInfo` in that file) contains `UIKit` or any import starting with `UIKit.` (e.g. submodule style). |
+| **Severity** | **Critical** — suitable for CI gates and for AI suggestion eligibility (`AISuggester` only considers **warning** and **critical**). |
+| **How types become “model” or “service”** | `ClassVisitor` sets `ClassType` from the **lowercased type name**: contains `viewcontroller` → VC; else `viewmodel` → VM; else `service` or `manager` → **service**; else `model` → **model**; else **unknown**. Order matters: e.g. `FooViewModel` is a **ViewModel**, not a model. |
+
+**How this differs from `ViewModelUIKitRule`**
+
+Both rules use the **same import detection** (`UIKit` / `UIKit.*`), but they guard **different layers** and **different `ClassType` values**, so they are complementary, not duplicates.
+
+| | `ViewModelUIKitRule` | `ModelServiceUIKitRule` |
+|--|----------------------|-------------------------|
+| **`Issue.ruleName`** | `ViewModelUIKitViolation` | `ModelServiceUIKitViolation` |
+| **Applies when `ClassType` is** | `.viewModel` only | `.model` **or** `.service` |
+| **Rationale** | MVVM: ViewModels should not depend on UIKit. | Layering: data/service types should stay UI-free for testability and reuse. |
+| **Typical fix** | Move UIKit usage into views / coordinators. | Move colors, images, view helpers, etc. out of models and services into the view layer or a small UI-facing module. |
+
+**Wiring in the app**
+
+- `AnalyzerApp.main()` appends `ModelServiceUIKitRule()` when `config.rules?.modelServiceUIKit?.enabled == true`.
+- `AnalyzerConfig.RuleConfig` includes optional `modelServiceUIKit: RuleToggle?`.
+- `ConfigLoader.merge` copies `enabled` from JSON into the merged config when the user supplies `rules.modelServiceUIKit`.
+
+**Example: disabling only this rule** (`.aianalyzer.json`):
+
+```json
+{
+  "rules": {
+    "modelServiceUIKit": { "enabled": false }
+  }
+}
+```
+
+**Limitations (important for interpretation)**
+
+- Classification is **heuristic from names**, not from folder structure or access control. A type named `User` will be **unknown**, not **model**, unless the name contains `model` (same for `service` / `manager`).
+- **Every type** in a file shares the **same** `imports` array (file-level imports). If *any* type in the file triggers the rule for model/service types, each qualifying type in that file is still evaluated independently, but all see identical imports — which matches “this file couples domain/service code to UIKit.”
+
+---
+
+### 2. Test target split by concern
+
+Previously, most tests lived in a single file `Tests/AIAnalyzerTests/AIAnalyzerTests.swift`. That file was **removed** and tests were **split into multiple Swift files** under `Tests/AIAnalyzerTests/`, one primary **concern** per file. This makes navigation, code review, and `swift test --filter` usage easier.
+
+**Shared AI test doubles**
+
+- `TestAIProviderStubs.swift` defines **`MockAIProvider`**, **`ThrowingAIProvider`**, and **`StaticAIProvider`** at **internal** visibility so both `AISuggesterTests` and `HybridAIProviderTests` can use them (they are no longer `private` to a single file).
+
+**File map (what each file is for)**
+
+| Test file | XCTest classes inside | What is being tested |
+|-----------|------------------------|----------------------|
+| `BasicRuleTests.swift` | `BasicRuleTests` | `LargeClassRule` fallback threshold for `.unknown`; `DataHeavyClassRule`. |
+| `ArchitecturalRuleTests.swift` | `ArchitecturalTests` | Context-aware `LargeClassRule` thresholds (e.g. VC vs model). |
+| `GodObjectRuleTests.swift` | `GodObjectTests` | `GodObjectRule` “at least two signals” behavior. |
+| `HighMethodDensityRuleTests.swift` | `DensityTests` | `HighMethodDensityRule`, including yield when line count is very large. |
+| `ClassVisitorTests.swift` | `VisitorTests`, `VisitorStructTests` | `ClassVisitor` + `SwiftParser`: trivia/line estimates, struct/enum/actor/extension extraction. |
+| `RuleEngineTests.swift` | `RuleEngineDedupTests` | `RuleEngine` overlap suppression when `GodObject` is present. |
+| `ModelServiceUIKitRuleTests.swift` | `ModelServiceUIKitRuleTests` | New UIKit-in-model/service rule: violations, clean paths, submodule import, ViewModel exclusion. |
+| `InputPathValidatorTests.swift` | `InputValidationTests` | `InputPathValidator` single-file extension checks. |
+| `AISuggesterTests.swift` | `AISuggesterTests` | Per-class deduplication and severity prioritization for AI calls. |
+| `HybridAIProviderTests.swift` | `HybridAIProviderTests` | Local-first escalation and fallback when local fails or cloud is absent. |
+| `AIRequestContextTests.swift` | `AIRequestContextPromptTests` | `AIRequestContext.buildPrompt(compact:)` standard vs compact strings. |
+
+**Class names were kept** where they already existed (e.g. `ArchitecturalTests`, `DensityTests`) so existing **`swift test --filter Visitor`** style invocations in `TESTING.md` still resolve to the same test bundles.
+
+**Running tests**
+
+```bash
+swift test
+swift test --filter ModelServiceUIKitRuleTests
+swift test --filter Visitor
+```
+
+---
+
+Test sources use **`AIAnalyzerTests`** as the second title line instead of `AIAnalyzer`. Stubs or heavily shared test helpers may include an extra short comment (e.g. purpose of mock providers) **below** the “Created by” line.
 
 ---
 
@@ -116,7 +208,7 @@ Merged with defaults by `ConfigLoader`. User `ignoreDirectories` are **unioned**
 Shape (`AnalyzerConfig`):
 
 - `ignoreDirectories`: extra directory name tokens; matching **any path component** skips that subtree (`FileScanner`).
-- `rules`: optional toggles for `largeClass`, `highMethodDensity`, `godObject`, `dataHeavyClass`, `viewModelUIKit`.
+- `rules`: optional toggles for `largeClass`, `highMethodDensity`, `godObject`, `dataHeavyClass`, `viewModelUIKit`, **`modelServiceUIKit`** (Model/Service must not import UIKit; see [Recent updates](#recent-updates-read-this-first)).
 
 The repository’s `.aianalyzer.json` example bumps thresholds and ignores `TestSandbox`, etc.
 
@@ -193,6 +285,7 @@ Resolved in `AIConfiguration.fromEnvironment()`. **`getenv` is preferred** so va
 | `HighMethodDensityRule` | Ignores tiny types; skips if lines > 350 (defer to large-class); type-specific method caps stricter than large-class; skips if average lines/method > 15; severity scales to critical if methods > 2× threshold. |
 | `DataHeavyClassRule` | Flags property count > threshold; severity **info** only. |
 | `ViewModelUIKitRule` | Rule name **`ViewModelUIKitViolation`**. If `ClassType` is **viewModel** (name contains `viewmodel`) and imports contain `UIKit` or `UIKit.*`, emits **critical** MVVM boundary violation. |
+| `ModelServiceUIKitRule` | Rule name **`ModelServiceUIKitViolation`**. If `ClassType` is **model** or **service** and the file imports `UIKit` / `UIKit.*`, emits **critical** layering violation (full behavior, limits, and comparison with `ViewModelUIKitRule` are documented under **Recent updates** at the top of this file). |
 
 ### `Utils/`
 
@@ -278,7 +371,7 @@ See source for exact integers.
 
 ## Related docs
 
-- **`TESTING.md`** — Local test commands; recommends `AI_ENABLED=false` for deterministic runs; notes future `SourceLocationConverter` for precise lines.
+- **`TESTING.md`** — Local test commands; recommends `AI_ENABLED=false` for deterministic runs; notes future `SourceLocationConverter` for precise lines. After the test split, prefer **`swift test --filter <ClassName>`** using the XCTest class names listed under **Recent updates → Test target split by concern** in this README.
 
 ---
 
@@ -286,7 +379,11 @@ See source for exact integers.
 
 1. Add a new `struct` conforming to `Rule` under `Sources/AIAnalyzer/Rules/`.
 2. Register it in `AnalyzerApp.main()` after loading config (mirror existing `if config.rules?....enabled` pattern); extend `AnalyzerConfig.RuleConfig` if you need JSON toggles.
-3. For AI relevance: use **warning** or **critical** severity if suggestions should fire (or extend `AISuggester` filtering logic).
+3. If the rule should be toggleable from JSON, add a merge branch in `ConfigLoader.merge` (see `modelServiceUIKit` / `viewModelUIKit` for toggles without thresholds).
+4. Add **unit tests** in a dedicated file under `Tests/AIAnalyzerTests/` named after the concern (keeps the test target easy to navigate).
+5. For AI relevance: use **warning** or **critical** severity if suggestions should fire (or extend `AISuggester` filtering logic).
+
+**Reference implementation for a JSON-only toggle:** `ModelServiceUIKitRule` + `AnalyzerConfig.RuleConfig.modelServiceUIKit` + `ConfigLoader` + `AnalyzerApp` + `Tests/AIAnalyzerTests/ModelServiceUIKitRuleTests.swift`.
 
 ---
 

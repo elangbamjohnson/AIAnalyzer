@@ -81,6 +81,13 @@ class ConfigLoader {
                 mergedRules.viewModelUIKit = current
             }
 
+            // modelServiceUIKit
+            if let userModelServiceUIKit = userRules.modelServiceUIKit {
+                var current = mergedRules.modelServiceUIKit ?? AnalyzerConfig.RuleToggle()
+                if let enabled = userModelServiceUIKit.enabled { current.enabled = enabled }
+                mergedRules.modelServiceUIKit = current
+            }
+
             config.rules = mergedRules
         }
         
