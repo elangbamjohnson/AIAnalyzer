@@ -1,50 +1,50 @@
-# CI: build and test the Swift package on each push and pull request.
-name: CI
+# CI: build and test the Swift package on each push and pull request. # Top-level comment describing the workflow's purpose.
+name: CI # The display name for this workflow in the GitHub Actions UI.
 
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+on: # Defines the events that trigger the workflow.
+  push: # Trigger the workflow on every push event...
+    branches: [main] # ...but only if the push is to the 'main' branch.
+  pull_request: # Trigger the workflow on every pull request event...
+    branches: [main] # ...but only if the pull request targets the 'main' branch.
 
-jobs:
-  build-test:
-    name: Build & Test (macOS)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+jobs: # Container for all the jobs that will run in this workflow.
+  build-test: # Unique identifier for this specific job.
+    name: Build & Test (macOS) # Human-readable name for the job displayed in the UI.
+    runs-on: macos-latest # Specifies the type of virtual machine to run the job on (latest macOS).
+    steps: # The sequence of tasks (steps) to be executed in this job.
+      - name: Checkout # Descriptive name for the first step.
+        uses: actions/checkout@v4 # Uses a standard GitHub action to clone the repository into the runner.
+        with: # Provides parameters to the checkout action.
+          submodules: recursive # Ensures that all git submodules are also checked out recursively.
 
-      - name: Cache SwiftPM
-        uses: actions/cache@v4
-        with:
-          path: |
-            .build
-            ${{ env.HOME }}/Library/Caches/org.swift.swiftpm
-          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved', 'Package.swift') }}
-          restore-keys: |
-            ${{ runner.os }}-spm-
+      - name: Cache SwiftPM # Descriptive name for the caching step to speed up future runs.
+        uses: actions/cache@v4 # Uses a standard GitHub action to cache files between workflow runs.
+        with: # Provides parameters to the cache action.
+          path: | # Specifies the list of directories to be cached.
+            .build # The SPM build artifacts directory.
+            ${{ env.HOME }}/Library/Caches/org.swift.swiftpm # The global SwiftPM cache directory.
+          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved', 'Package.swift') }} # Unique key for the cache based on OS and dependency file hashes.
+          restore-keys: | # Backup keys to use if an exact match for 'key' is not found.
+            ${{ runner.os }}-spm- # Falls back to the most recent cache for this OS.
 
-      - name: Swift version
-        run: swift --version
+      - name: Swift version # Step to log the Swift environment information.
+        run: swift --version # Executes the command to print the installed Swift version.
 
-      - name: Resolve dependencies
-        run: swift package resolve
+      - name: Resolve dependencies # Step to fetch and resolve all package dependencies.
+        run: swift package resolve # Executes the SPM command to download necessary libraries.
 
-      - name: Build
-        run: swift build -v
+      - name: Build # Step to compile the entire project.
+        run: swift build -v # Executes the SPM build command with verbose output for debugging.
 
-      - name: Test
-        run: swift test -v
+      - name: Test # Step to execute the unit test suite.
+        run: swift test -v # Executes all tests in the package with verbose output.
 
-      - name: Smoke — run analyzer on fixture (AI off)
-        env:
-          AI_ENABLED: "false"
-        run: |
-          FIXTURE="Fixtures/SmokeSample.swift"
-          test -f "$FIXTURE" || { echo "Missing fixture: $FIXTURE"; exit 1; }
-          OUTPUT="$(swift run AIAnalyzer "$FIXTURE" --json)"
-          printf '%s\n' "$OUTPUT" | python3 -m json.tool > /dev/null
-          printf '%s\n' "$OUTPUT"
+      - name: Smoke — run analyzer on fixture (AI off) # Step for a high-level integration/smoke test.
+        env: # Defines environment variables for this specific step.
+          AI_ENABLED: "false" # Disables AI features to test the core logic without external dependencies.
+        run: | # Executes a multi-line shell script.
+          FIXTURE="Fixtures/SmokeSample.swift" # Stores the path to a test Swift file in a variable.
+          test -f "$FIXTURE" || { echo "Missing fixture: $FIXTURE"; exit 1; } # Checks if the fixture file exists; exits with error if missing.
+          OUTPUT="$(swift run AIAnalyzer "$FIXTURE" --json)" # Runs the compiled tool on the fixture and captures JSON output.
+          printf '%s\n' "$OUTPUT" | python3 -m json.tool > /dev/null # Validates that the output is well-formed JSON using Python's tool.
+          printf '%s\n' "$OUTPUT" # Prints the final output to the CI log for manual inspection if needed.
