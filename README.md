@@ -1,392 +1,512 @@
-# AIAnalyzer — Project Handbook
+# AIAnalyzer
 
-AIAnalyzer is a **macOS command-line static analyzer for Swift**. It parses Swift source with **SwiftSyntax**, extracts structural metrics per type (class, struct, enum, actor, extension), runs a **pluggable rule engine**, optionally enriches **warning** and **critical** findings with **LLM-backed refactoring suggestions**, and prints results for humans (console), machines (`--json`), or Xcode (`--xcode`).
+AIAnalyzer is a Swift command-line tool that scans Swift source code, finds common architecture and maintainability problems, and can optionally ask an AI provider for refactoring suggestions.
 
-This document is the authoritative reference for architecture, data flow, configuration, and the AI layer.
-
----
-
-## Recent updates (read this first)
-
-This section describes **material changes** to the codebase and how they affect you as a reader, contributor, or integrator. Earlier sections of the handbook remain the deep reference; here the focus is on **what is new** and **where to look**.
-
-### 1. Model / Service UIKit layering rule (`ModelServiceUIKitRule`)
-
-A new architectural rule enforces **separation between UI frameworks and non-UI layers** for types the analyzer classifies as **models** or **services** (using the same **name-based heuristics** as `ClassVisitor`, not full type-resolution).
-
-| Aspect | Detail |
-|--------|--------|
-| **Source file** | `Sources/AIAnalyzer/Rules/ModelServiceUIKitRule.swift` |
-| **Rule identifier (`Issue.ruleName`)** | `ModelServiceUIKitViolation` |
-| **Default** | **Enabled** in `AnalyzerConfig.default` (same pattern as `viewModelUIKit`). |
-| **JSON toggle** | Under `rules`, key **`modelServiceUIKit`**, shape: `{ "enabled": true }` (optional; threshold is not used). |
-| **When it fires** | The type’s `ClassInfo.type` is **`.model`** *or* **`.service`**, **and** the file’s import list (attached to every `ClassInfo` in that file) contains `UIKit` or any import starting with `UIKit.` (e.g. submodule style). |
-| **Severity** | **Critical** — suitable for CI gates and for AI suggestion eligibility (`AISuggester` only considers **warning** and **critical**). |
-| **How types become “model” or “service”** | `ClassVisitor` sets `ClassType` from the **lowercased type name**: contains `viewcontroller` → VC; else `viewmodel` → VM; else `service` or `manager` → **service**; else `model` → **model**; else **unknown**. Order matters: e.g. `FooViewModel` is a **ViewModel**, not a model. |
-
-**How this differs from `ViewModelUIKitRule`**
-
-Both rules use the **same import detection** (`UIKit` / `UIKit.*`), but they guard **different layers** and **different `ClassType` values**, so they are complementary, not duplicates.
-
-| | `ViewModelUIKitRule` | `ModelServiceUIKitRule` |
-|--|----------------------|-------------------------|
-| **`Issue.ruleName`** | `ViewModelUIKitViolation` | `ModelServiceUIKitViolation` |
-| **Applies when `ClassType` is** | `.viewModel` only | `.model` **or** `.service` |
-| **Rationale** | MVVM: ViewModels should not depend on UIKit. | Layering: data/service types should stay UI-free for testability and reuse. |
-| **Typical fix** | Move UIKit usage into views / coordinators. | Move colors, images, view helpers, etc. out of models and services into the view layer or a small UI-facing module. |
-
-**Wiring in the app**
-
-- `AnalyzerApp.main()` appends `ModelServiceUIKitRule()` when `config.rules?.modelServiceUIKit?.enabled == true`.
-- `AnalyzerConfig.RuleConfig` includes optional `modelServiceUIKit: RuleToggle?`.
-- `ConfigLoader.merge` copies `enabled` from JSON into the merged config when the user supplies `rules.modelServiceUIKit`.
-
-**Example: disabling only this rule** (`.aianalyzer.json`):
-
-```json
-{
-  "rules": {
-    "modelServiceUIKit": { "enabled": false }
-  }
-}
-```
-
-**Limitations (important for interpretation)**
-
-- Classification is **heuristic from names**, not from folder structure or access control. A type named `User` will be **unknown**, not **model**, unless the name contains `model` (same for `service` / `manager`).
-- **Every type** in a file shares the **same** `imports` array (file-level imports). If *any* type in the file triggers the rule for model/service types, each qualifying type in that file is still evaluated independently, but all see identical imports — which matches “this file couples domain/service code to UIKit.”
+Think of it as a lightweight static-analysis assistant for Mac and iOS projects. New developers can run it locally, wire it into Xcode, or use the JSON output in scripts and CI.
 
 ---
 
-### 2. Test target split by concern
+## Quick Start
 
-Previously, most tests lived in a single file `Tests/AIAnalyzerTests/AIAnalyzerTests.swift`. That file was **removed** and tests were **split into multiple Swift files** under `Tests/AIAnalyzerTests/`, one primary **concern** per file. This makes navigation, code review, and `swift test --filter` usage easier.
-
-**Shared AI test doubles**
-
-- `TestAIProviderStubs.swift` defines **`MockAIProvider`**, **`ThrowingAIProvider`**, and **`StaticAIProvider`** at **internal** visibility so both `AISuggesterTests` and `HybridAIProviderTests` can use them (they are no longer `private` to a single file).
-
-**File map (what each file is for)**
-
-| Test file | XCTest classes inside | What is being tested |
-|-----------|------------------------|----------------------|
-| `BasicRuleTests.swift` | `BasicRuleTests` | `LargeClassRule` fallback threshold for `.unknown`; `DataHeavyClassRule`. |
-| `ArchitecturalRuleTests.swift` | `ArchitecturalTests` | Context-aware `LargeClassRule` thresholds (e.g. VC vs model). |
-| `GodObjectRuleTests.swift` | `GodObjectTests` | `GodObjectRule` “at least two signals” behavior. |
-| `HighMethodDensityRuleTests.swift` | `DensityTests` | `HighMethodDensityRule`, including yield when line count is very large. |
-| `ClassVisitorTests.swift` | `VisitorTests`, `VisitorStructTests` | `ClassVisitor` + `SwiftParser`: trivia/line estimates, struct/enum/actor/extension extraction. |
-| `RuleEngineTests.swift` | `RuleEngineDedupTests` | `RuleEngine` overlap suppression when `GodObject` is present. |
-| `ModelServiceUIKitRuleTests.swift` | `ModelServiceUIKitRuleTests` | New UIKit-in-model/service rule: violations, clean paths, submodule import, ViewModel exclusion. |
-| `InputPathValidatorTests.swift` | `InputValidationTests` | `InputPathValidator` single-file extension checks. |
-| `AISuggesterTests.swift` | `AISuggesterTests` | Per-class deduplication and severity prioritization for AI calls. |
-| `HybridAIProviderTests.swift` | `HybridAIProviderTests` | Local-first escalation and fallback when local fails or cloud is absent. |
-| `AIRequestContextTests.swift` | `AIRequestContextPromptTests` | `AIRequestContext.buildPrompt(compact:)` standard vs compact strings. |
-
-**Class names were kept** where they already existed (e.g. `ArchitecturalTests`, `DensityTests`) so existing **`swift test --filter Visitor`** style invocations in `TESTING.md` still resolve to the same test bundles.
-
-**Running tests**
-
-```bash
-swift test
-swift test --filter ModelServiceUIKitRuleTests
-swift test --filter Visitor
-```
-
----
-
-Test sources use **`AIAnalyzerTests`** as the second title line instead of `AIAnalyzer`. Stubs or heavily shared test helpers may include an extra short comment (e.g. purpose of mock providers) **below** the “Created by” line.
-
----
-
-## Requirements and build
-
-| Item | Value |
-|------|--------|
-| Platform | macOS 12+ (`Package.swift`) |
-| Swift | 5.7+ |
-| SPM dependencies | `SwiftSyntax`, `SwiftParser` (from [swift-syntax](https://github.com/apple/swift-syntax), ≥ 508.0.0) |
-| Optional runtime | Network for Gemini; local [Ollama](https://ollama.com/) for OpenAI-compatible chat; Core ML `.mlmodelc` for on-device inference |
+Run these commands from this repository:
 
 ```bash
 swift build
 swift test
-swift run AIAnalyzer sample.swift
+AI_ENABLED=false swift run AIAnalyzer sample.swift
 ```
 
-CI (`.github/workflows/ci.yml`) runs `swift build`, `swift test`, and a smoke run with `AI_ENABLED=false` on `Fixtures/SmokeSample.swift` validating `--json` output.
+Scan another Swift project:
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject
+```
+
+Emit Xcode-compatible diagnostics:
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --xcode
+```
+
+Emit machine-readable JSON:
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --json
+```
 
 ---
 
-## High-level architecture
+## Technology Stack
+
+| Area | Technology | How it is used |
+| --- | --- | --- |
+| Language | Swift 5.7+ | Main implementation language. |
+| Package manager | Swift Package Manager | Builds the executable and test target. |
+| Platforms | macOS 13+, iOS 13+ package platforms | The analyzer runs as a command-line executable, primarily on macOS. |
+| Parser | SwiftParser | Parses Swift source into a syntax tree. |
+| Syntax tree API | SwiftSyntax | Visits declarations and extracts structure from Swift files. |
+| Testing | XCTest through `swift test` | Unit tests cover rules, visitor behavior, AI orchestration, and input validation. |
+| Reporting | Console, JSON, Xcode diagnostics | Outputs findings for humans, automation, and Xcode integration. |
+| AI providers | Gemini, Ollama, local/Core ML, hybrid | Optional suggestions for warning and critical issues. |
+| Configuration | `.aianalyzer.json`, `.aianalyzer.env`, environment variables | Controls ignored folders, rule toggles, thresholds, and AI runtime settings. |
+
+Primary dependency from `Package.swift`:
+
+```swift
+.package(url: "https://github.com/apple/swift-syntax.git", from: "508.0.0")
+```
+
+---
+
+## How It Fits Into a Mac Project
+
+Use AIAnalyzer beside your normal Mac or iOS project. Xcode remains your editor, build system, preview tool, and debugger. AIAnalyzer acts as a project health check that can be run from Terminal, an Xcode Run Script phase, a CI job, or a local developer script.
+
+```mermaid
+flowchart TD
+    Dev["Developer working in Xcode"]
+    MacProject["Mac/iOS Swift project"]
+    Script["Terminal, Xcode Run Script, or CI job"]
+    Analyzer["AIAnalyzer CLI"]
+    Config[".aianalyzer.json and .aianalyzer.env"]
+    Parser["SwiftParser + SwiftSyntax"]
+    Rules["Rule engine"]
+    AI["Optional AI suggestion layer"]
+    Output["Console, JSON, or Xcode diagnostics"]
+    Fix["Developer reviews and fixes code"]
+
+    Dev --> MacProject
+    MacProject --> Script
+    Script --> Analyzer
+    Config --> Analyzer
+    Analyzer --> Parser
+    Parser --> Rules
+    Rules --> Output
+    Rules --> AI
+    AI --> Output
+    Output --> Fix
+    Fix --> MacProject
+```
+
+Recommended local workflow:
+
+1. Add a project-level `.aianalyzer.json` when you need custom ignores or thresholds.
+2. Run the analyzer before large refactors or before opening a pull request.
+3. Use `--xcode` when you want findings to appear as Xcode warnings/errors.
+4. Use `--json` when another tool or CI job needs to consume the results.
+5. Turn AI on only when you want explanation and refactoring help, not for deterministic test runs.
+
+---
+
+## What The App Checks
+
+AIAnalyzer parses each Swift file and extracts metrics for classes, structs, enums, actors, and extensions. It then runs a set of independent rules.
+
+| Rule | What it checks | Severity |
+| --- | --- | --- |
+| `LargeClassRule` | Types with too many methods or too many lines. Uses different limits for ViewControllers, ViewModels, services, models, and unknown types. | Warning or critical |
+| `HighMethodDensityRule` | Types with too many methods packed into a relatively small type. Skips very large files so `LargeClassRule` can own that signal. | Warning or critical |
+| `GodObjectRule` | Types that breach at least two major signals, such as methods, properties, and lines. | Critical |
+| `DataHeavyClassRule` | Types with too many stored properties. | Info |
+| `ViewModelUIKitRule` | ViewModel-like types whose file imports `UIKit` or `UIKit.*`. | Critical |
+| `ModelServiceUIKitRule` | Model-like or service-like types whose file imports `UIKit` or `UIKit.*`. | Critical |
+
+Type classification is name-based:
+
+| Name contains | Classified as |
+| --- | --- |
+| `viewcontroller` | ViewController |
+| `viewmodel` | ViewModel |
+| `service` or `manager` | Service |
+| `model` | Model |
+| Anything else | Unknown |
+
+This is intentionally simple. The analyzer does not currently do full type resolution, module graph analysis, or folder-based architecture inference.
+
+---
+
+## End-To-End Pipeline
 
 ```mermaid
 flowchart LR
-  subgraph input [Input]
-    CLI[CLI args + env]
-    CFG[.aianalyzer.json]
-    ENV[.aianalyzer.env]
-  end
-  subgraph scan [Discovery]
-    FS[FileScanner]
-  end
-  subgraph parse [Extraction]
-    P[SwiftParser]
-    V[ClassVisitor]
-  end
-  subgraph analyze [Analysis]
-    RE[RuleEngine]
-    R[Rule implementations]
-  end
-  subgraph ai [Optional AI]
-    AS[AISuggester]
-    AP[AIProvider implementations]
-  end
-  subgraph out [Output]
-    CR[ConsoleReporter]
-    JR[JSON encoder]
-    XR[XcodeReporter]
-  end
-  CLI --> FS
-  CFG --> RE
-  ENV --> AS
-  FS --> P --> V --> RE
-  RE --> R
-  RE --> CR
-  RE --> JR
-  RE --> XR
-  RE --> AS --> AP
+    Input["Input path"]
+    Validate["Validate file or folder"]
+    Env["Load .aianalyzer.env"]
+    Config["Load .aianalyzer.json"]
+    Scan["Discover .swift files"]
+    Parse["Parse with SwiftParser"]
+    Visit["Visit with ClassVisitor"]
+    Analyze["Run RuleEngine"]
+    Report["Report output"]
+    AISuggest["Optional AISuggester"]
+
+    Input --> Validate
+    Validate --> Env
+    Env --> Config
+    Config --> Scan
+    Scan --> Parse
+    Parse --> Visit
+    Visit --> Analyze
+    Analyze --> Report
+    Analyze --> AISuggest
+    AISuggest --> Report
 ```
 
-**Design patterns in use**
+Detailed sequence:
 
-- **Visitor:** `ClassVisitor` subclasses `SwiftSyntax.SyntaxVisitor` to collect metrics without mutating the tree.
-- **Strategy:** `AIProvider` abstracts Gemini, Ollama, Core ML / heuristics, and hybrid orchestration.
-- **Rule engine:** Each `Rule` is independent; `RuleEngine` composes them and applies overlap suppression.
-- **Concurrency:** `AnalyzerApp.main()` is `async`; AI calls use `async/await` and `URLSession`.
-
----
-
-## End-to-end pipeline
-
-The run sequence is implemented in `AnalyzerApp.main()` (`Sources/AIAnalyzer/App/AnalyzerApp.swift`).
-
-1. **CLI parsing** — Reads `--json`, `--xcode`, and a single positional path (default `sample.swift` if omitted).
-2. **Path validation** — Ensures the path exists; for a single file, requires `.swift` (`InputPathValidator`).
-3. **Config root** — Directory scans use the given folder; single-file scans use the file’s parent as the config root.
-4. **Environment file** — `EnvironmentFileLoader` walks ancestors from the config root, collects every `.aianalyzer.env`, and applies **only the outermost** file (closest to filesystem root). Nested files are ignored with a warning. Parsed `KEY=value` lines call `setenv`, so later code sees them via `getenv`.
-5. **JSON config** — `ConfigLoader.load(from:)` reads `$root/.aianalyzer.json` if present and **merges** with `AnalyzerConfig.default` (union ignore dirs; per-rule toggles/thresholds layered on defaults). On decode failure, defaults are used and an error is printed.
-6. **File discovery** — For directories, `FileScanner.getSwiftFiles` recursively lists `.swift` files, skipping any path whose components intersect **default ignores** from `AnalyzerConfig.default` unioned with config extras (e.g. `Pods`, `Carthage`, `.build`).
-7. **Per-file processing** — For each file:
-   - Read UTF-8 source; `Parser.parse` builds a syntax tree.
-   - **Import pre-pass:** Top-level `import` declarations are collected from `sourceFile.statements` (avoids visitor ordering quirks on SwiftSyntax 508).
-   - `ClassVisitor` walks the tree with `viewMode: .all` and collected imports.
-   - `RuleEngine.analyze(visitor.classes)` produces `Issue` values (with God-Object overlap filtering).
-   - **Summary** aggregates counts (`AnalysisSummary`).
-8. **Output branch**
-   - **`--json`:** Emit `[IssueReport]` as pretty-printed JSON to stdout; **no** console reporter per file; **no** AI suggestions. Read errors still go to stderr in JSON mode. Exit `1` if any file read failed.
-   - **Otherwise:** `ConsoleReporter` or `XcodeReporter` prints static findings. If AI is enabled and configured, `AISuggester` runs (see below). Xcode mode additionally prints AI lines as `note:` with absolute paths.
-9. **Final summary** — Non-JSON mode prints aggregate summary via the reporter.
+1. The CLI reads `--json`, `--xcode`, and one optional input path.
+2. The input path is validated. A single file must be a `.swift` file.
+3. `.aianalyzer.env` is loaded from the config root when present.
+4. `.aianalyzer.json` is loaded and merged with default settings.
+5. Directory scans recursively collect `.swift` files while skipping ignored folders.
+6. `SwiftParser` parses each source file.
+7. `ClassVisitor` collects type metrics, member counts, line estimates, and imports.
+8. `RuleEngine` evaluates each rule and suppresses some duplicate noise when `GodObjectRule` already fired.
+9. The app prints console output, JSON, or Xcode-compatible diagnostics.
+10. If AI is enabled and configured, warning and critical findings are enriched with suggestions.
 
 ---
 
-## CLI reference
+## Output Modes
 
-| Argument | Effect |
-|----------|--------|
-| *(positional)* | Path to a `.swift` file or a directory of Swift sources. Defaults to `sample.swift`. |
-| `--json` | Machine-readable issues only; stderr for errors; disables AI and per-file console tables. |
-| `--xcode` | Xcode-compatible `path:line: warning|error|note:` lines for static issues; AI suggestions as `note:` (see `reportAISuggestionsForXcode`). |
+### Console Output
 
----
+Default mode is meant for humans.
 
-## Configuration
+```bash
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject
+```
 
-### `.aianalyzer.json` (project root)
+It prints:
 
-Merged with defaults by `ConfigLoader`. User `ignoreDirectories` are **unioned** with defaults. Rule sections override only fields provided (`enabled`, `threshold` where applicable).
+- File name.
+- Type names and inferred type categories.
+- Method, property, initializer, accessor, subscript, and line counts.
+- Approximate member map.
+- Issues found in each file.
+- Top files with issues.
+- Final summary totals.
 
-Shape (`AnalyzerConfig`):
+### JSON Output
 
-- `ignoreDirectories`: extra directory name tokens; matching **any path component** skips that subtree (`FileScanner`).
-- `rules`: optional toggles for `largeClass`, `highMethodDensity`, `godObject`, `dataHeavyClass`, `viewModelUIKit`, **`modelServiceUIKit`** (Model/Service must not import UIKit; see [Recent updates](#recent-updates-read-this-first)).
+Use JSON when another tool needs to consume the result.
 
-The repository’s `.aianalyzer.json` example bumps thresholds and ignores `TestSandbox`, etc.
+```bash
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --json
+```
 
-### `.aianalyzer.env`
+Each issue is emitted as an `IssueReport`:
 
-Key-value lines (`#` comments, optional quoted values). Only the **outermost** file along the ancestor chain is applied. After load, a warning line prints resolved `AI_PROVIDER` and source hint.
+```json
+{
+  "file": "UserViewModel.swift",
+  "line": null,
+  "message": "UserViewModel imports UIKit. ViewModels should not depend on UIKit.",
+  "rule": "ViewModelUIKitViolation",
+  "severity": "🔴 Critical",
+  "typeName": "UserViewModel"
+}
+```
 
-### Environment variables (AI and behavior)
+Important behavior:
 
-Resolved in `AIConfiguration.fromEnvironment()`. **`getenv` is preferred** so values set by `.aianalyzer.env` are visible immediately.
+- JSON mode disables AI suggestions.
+- JSON mode keeps stdout machine-readable.
+- File read errors are written to stderr.
 
-| Variable | Role |
-|----------|------|
-| `AI_ENABLED` | Must be `true` (case-insensitive) to run the AI layer. |
-| `AI_PROVIDER` | `gemini` (default if unset), `local`, `ollama`, or `hybrid`. |
-| `GEMINI_API_KEY` | Required for `gemini`; required for hybrid **cloud escalation** when present. Hybrid without key prints an informational message and stays on local tiers. |
-| `AI_MODEL` | Gemini model id (default `gemini-1.5-flash`). Leading `models/` stripped; must not contain `/` or spaces in the provider. |
-| `OLLAMA_MODEL` | Default `qwen2.5-coder:7b`. |
-| `OLLAMA_ENDPOINT` | Default `http://localhost:11434/v1/chat/completions`. May be host-only; normalized to `.../v1/chat/completions`. |
-| `AI_LOCAL_MODEL` | Label for local/Core ML messaging (default name from `AIConstants.Local`). |
-| `AI_LOCAL_MODEL_PATH` | Filesystem path to `.mlmodelc` or other Core ML artifact; blank treated as unset. |
-| `AI_MAX_SUGGESTIONS` | Cap on AI requests per file (default `5`). |
-| `AI_SNIPPET_LINES` | First *N* lines of the **entire file** used as the code snippet in prompts (default `120`). |
-| `AI_VERBOSE` | `true` → formatter shows full raw AI text and longer unstructured fallback in `AISuggestionFormatter`. |
-| `AI_TYPEWRITER_MS` | Delay between characters for console AI output (default `8`). |
+### Xcode Output
 
----
+Use Xcode mode when running the analyzer from a Run Script phase or a local script opened from Xcode.
 
-## Source layout and types reference
+```bash
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --xcode
+```
 
-### `App/`
+The output uses this shape:
 
-| Symbol | Responsibility |
-|--------|----------------|
-| `AnalyzerApp` | `@main` entry: CLI, config, scan loop, rule wiring, reporters, `buildAISuggester`, AI printing (typewriter), Xcode AI notes, JSON encoding. |
-| `EnvironmentFileLoader` | Loads outermost `.aianalyzer.env`, parses lines, `setenv`, diagnostics. |
-| `InputPathValidator` | Returns an error string if a non-directory input is not `.swift`. |
+```text
+/path/to/File.swift:1: warning: [AIAnalyzer] message
+/path/to/File.swift:1: error: [AIAnalyzer] critical message
+note: [AIAnalyzer] Analysis complete. Found 3 issues in 12 files.
+```
 
-**`buildAISuggester` provider wiring**
-
-- `gemini`: needs non-empty `GEMINI_API_KEY`; uses `GeminiProvider(apiKey:model:)`.
-- `ollama`: `OllamaProvider(endpoint:modelName:)`.
-- `local`: optional warning if Core ML path missing; `LocalLLMProvider(modelPath:modelName:)`.
-- `hybrid`: `localPreferred` = `OllamaProvider`; `localFallback` = `LocalLLMProvider(modelPath: nil, …, failIfStub: false)` (heuristics); `cloud` = `GeminiProvider` if API key set; **`preferLocal` is always `true`** in current wiring — `HybridAIProvider`’s cloud-first branch exists but is not selected from the app.
-
-### `Models/`
-
-| Type | Responsibility |
-|------|----------------|
-| `ClassInfo` | Per-type metrics: `ClassType` (name-heuristic VC/VM/service/model/unknown), counts (methods, properties, lines, inits, subscripts, accessors), `memberInfos` (approximate relative line ranges per member), file-level `imports`. |
-| `Issue` | `ruleName`, `message`, `severity`, optional `line` (often unused by current rules). Codable. |
-| `Severity` | `info` / `warning` / `critical` (raw values are emoji prefixes for console). |
-| `AnalyzerConfig` | Codable JSON config + nested `RuleConfig` / `RuleToggle`. |
-| `IssueReport` | JSON export shape: `rule`, `severity`, `message`, `file`, `line`, `typeName`. |
-| `AnalysisSummary` | Running totals: files, types, issue counts by severity. |
-
-**`AnalyzerConfig+Default`** — Default ignores (`.build`, `.git`, `.swiftpm`, `DerivedData`, `Pods`, `Build`, `Carthage`) and all rules enabled with default thresholds where applicable.
-
-### `Visitor/`
-
-| Symbol | Responsibility |
-|--------|----------------|
-| `ClassVisitor` | Visits `class`, `struct`, `enum`, `actor`, and `extension` declarations. Counts methods (`FunctionDecl`), property bindings (flattened), initializers, subscripts, accessors (bindings with accessor), estimates lines via `description` newline splits, builds **approximate** member line maps by summing per-member description line counts (not source-location accurate; see `TESTING.md` roadmap). Classifies architectural kind from **type name** substrings (`viewcontroller`, `viewmodel`, `service`/`manager`, `model`). Extensions use the extended type’s description string as the “name”. |
-
-### `Rules/`
-
-| Symbol | Responsibility |
-|--------|----------------|
-| `Rule` protocol | `name`, `evaluate(ClassInfo) -> Issue?`. |
-| `RuleConstants` | Default numeric thresholds; nested `LargeClass` and `GodObject` per-architecture limits. |
-| `RuleEngine` | Runs all rules per class; **overlap filter**: if `GodObject` fired, drops `LargeClass` and `DataHeavyClass` for that class’s batch to reduce noise. |
-| `LargeClassRule` | Context-aware method **and** line caps (`RuleConstants.LargeClass` per `ClassType`). For `.unknown`, **method** threshold comes from the rule’s configurable `threshold` (JSON `largeClass.threshold`), **line** cap uses `defaultLines` (300). Severity **warning** or **critical** if over ~2× thresholds. |
-| `GodObjectRule` | Requires **at least two** of: methods over cap, properties over cap, lines over cap (caps from `RuleConstants.GodObject` by type). Always **critical**. |
-| `HighMethodDensityRule` | Ignores tiny types; skips if lines > 350 (defer to large-class); type-specific method caps stricter than large-class; skips if average lines/method > 15; severity scales to critical if methods > 2× threshold. |
-| `DataHeavyClassRule` | Flags property count > threshold; severity **info** only. |
-| `ViewModelUIKitRule` | Rule name **`ViewModelUIKitViolation`**. If `ClassType` is **viewModel** (name contains `viewmodel`) and imports contain `UIKit` or `UIKit.*`, emits **critical** MVVM boundary violation. |
-| `ModelServiceUIKitRule` | Rule name **`ModelServiceUIKitViolation`**. If `ClassType` is **model** or **service** and the file imports `UIKit` / `UIKit.*`, emits **critical** layering violation (full behavior, limits, and comparison with `ViewModelUIKitRule` are documented under **Recent updates** at the top of this file). |
-
-### `Utils/`
-
-| Symbol | Responsibility |
-|--------|----------------|
-| `FileScanner` | Recursive `.swift` discovery with merged ignore sets; `skipDescendants()` when entering ignored dirs. |
-| `ConfigLoader` | Load `.aianalyzer.json`, merge with defaults, decode failure fallback. |
-
-### `Reporting/`
-
-| Symbol | Responsibility |
-|--------|----------------|
-| `Reporter` | `report(file:classes:issues:)`, `reportSummary(_:fileIssueMap:)`. |
-| `ConsoleReporter` | Human-readable per-file type metrics, member map, issues, top files summary, global counts. |
-| `XcodeReporter` | `fullPath:line: warning|error: [AIAnalyzer] message` — maps `critical` → `error`, `warning`/`info` → `warning`; summary emits a single `note:`. |
+Xcode can display these as warnings, errors, and notes in the issue navigator.
 
 ---
 
-## AI layer (detailed)
+## How AI Assistance Works
 
-### Overview
+AI is optional. Static analysis always runs first. The AI layer only receives warning and critical findings, so informational issues do not generate AI requests.
 
-When `AI_ENABLED=true`, `AISuggester` receives **warning** and **critical** issues only (`info` is excluded — so **`DataHeavyClass` never triggers AI** in the current code). It deduplicates to **one issue per type name** (highest severity wins), sorts by severity, takes the first `AI_MAX_SUGGESTIONS`, builds an `AIRequestContext` per issue, and calls `provider.suggest`. Each request wraps the provider in a terminal **spinner** (`withSpinner`).
+```mermaid
+flowchart TD
+    Issues["Rule findings"]
+    Filter["Keep warning + critical only"]
+    Dedup["One highest-severity issue per type"]
+    Limit["Apply AI_MAX_SUGGESTIONS"]
+    Prompt["Build prompt with rule, metrics, member map, and source snippet"]
+    Provider{"AI_PROVIDER"}
+    Gemini["Gemini"]
+    Ollama["Ollama"]
+    Local["Local/Core ML + heuristic fallback"]
+    Hybrid["Hybrid local-first provider"]
+    Suggestion["Diagnosis + suggested refactor"]
+    Output["Console or Xcode note"]
 
-**Snippet context:** `buildSnippet` takes the **first `AI_SNIPPET_LINES` lines of the whole file**, not the offending member slice — important when interpreting prompts.
+    Issues --> Filter
+    Filter --> Dedup
+    Dedup --> Limit
+    Limit --> Prompt
+    Prompt --> Provider
+    Provider --> Gemini
+    Provider --> Ollama
+    Provider --> Local
+    Provider --> Hybrid
+    Gemini --> Suggestion
+    Ollama --> Suggestion
+    Local --> Suggestion
+    Hybrid --> Suggestion
+    Suggestion --> Output
+```
 
-**Class matching:** `matchClass` picks the first `ClassInfo` whose `name` appears in `issue.message`, else falls back to `classes.first`.
+AI can help developers understand:
 
-### `AIRequestContext` and prompts
+- Why the rule fired.
+- What architectural boundary was crossed.
+- Which refactor is likely to reduce risk.
+- A quick first step before doing a larger cleanup.
 
-- **`buildPrompt(compact: false)`** — Used by **Gemini** and **Ollama**. Includes rule, severity, message, type name, structural profile (counts, member map), and snippet. Asks for root cause, refactor steps, quick win.
-- **`buildPrompt(compact: true)`** — Used by **Core ML** path in `LocalLLMProvider` (`performCoreMLInference`). Shorter “Swift refactoring assistant” variant.
+AI should be treated as guidance. The rule output is deterministic; the AI explanation is advisory and should be reviewed by a developer.
 
-### `AISuggestion` and formatting
+### Enable AI
 
-- **`AISuggestion`** — `IssueMetadata` (rule, type, severity) + `AIContent` (`diagnosis`, `modelSource`, `suggestedRefactor`).
-- **`AISuggestionFormatter`** — Parses loose sections when output contains “root cause”, “refactor steps”, “quick win” headings; strips markdown `**` and `` ` ``; verbose mode appends raw model text; unstructured text gets truncated lines with hint to set `AI_VERBOSE`.
+Gemini:
 
-### Provider implementations
+```bash
+AI_ENABLED=true \
+AI_PROVIDER=gemini \
+GEMINI_API_KEY=your_key_here \
+swift run AIAnalyzer /path/to/YourMacProject
+```
 
-| Provider | Model / API | Prompt | Notes |
-|----------|-------------|--------|-------|
-| `GeminiProvider` | Google Generative Language API `v1beta/models/{model}:generateContent` | Standard | JSON body `contents[].parts[].text`; exponential backoff (2^(attempt-1) seconds) up to 3 tries on HTTP 429/503 and selected `URLError` codes; validates model id; masks key in debug URL. |
-| `OllamaProvider` | OpenAI-compatible `POST` with `model`, `messages`, `stream: false` | Standard | 300s timeout; parses `choices[0].message.content`. |
-| `LocalLLMProvider` | Core ML `MLModel` at optional path + heuristic fallback | Compact for ML | Loads `.mlmodelc` directly or compiles other extensions; `runTextInference` binds first **string** input feature and reads first non-empty string output feature — generic for varied model interfaces. On failure or missing path: **`generateLocalIntelligenceSuggestion`** returns deterministic templates for `GodObject`, `LargeClass`, `DataHeavyClass`, default SRP text. If Core ML succeeds, concatenates model output with heuristic block. `failIfStub` can force errors when no path (used only if wired that way; hybrid fallback uses `failIfStub: false`). |
-| `HybridAIProvider` | Orchestrates `localPreferred`, optional `cloud`, `localFallback` | Delegates | **Local-first:** try local; `isHighConfidence` requires suggested refactor length **> 50** and diagnosis not containing `"Stub"`; else escalate to Gemini if configured; on errors, try cloud then `localFallback` or static `fallbackSuggestion`. **Cloud-first** path exists for API symmetry but app always passes `preferLocal: true`. |
+Ollama:
 
-### Default model names (`AIConstants`)
+```bash
+AI_ENABLED=true \
+AI_PROVIDER=ollama \
+OLLAMA_MODEL=qwen2.5-coder:7b \
+OLLAMA_ENDPOINT=http://localhost:11434 \
+swift run AIAnalyzer /path/to/YourMacProject
+```
 
-- Gemini default: `gemini-1.5-flash`.
-- Ollama default model: `qwen2.5-coder:7b`.
-- Local label default: `Qwen2.5-Coder-7B-Instruct`.
-- Default suggestion cap: `5`; snippet lines: `120`.
+Hybrid local-first mode:
 
-### Xcode AI lines
+```bash
+AI_ENABLED=true \
+AI_PROVIDER=hybrid \
+OLLAMA_MODEL=qwen2.5-coder:7b \
+GEMINI_API_KEY=your_key_here \
+swift run AIAnalyzer /path/to/YourMacProject
+```
 
-`reportAISuggestionsForXcode` matches suggestion to an issue by `ruleName` and type name in message; prints `note:` with flattened diagnosis, prefix `[AIAnalyzer][AI][rule]`.
+### AI Environment Variables
+
+| Variable | Purpose |
+| --- | --- |
+| `AI_ENABLED` | Must be `true` to enable AI suggestions. |
+| `AI_PROVIDER` | `gemini`, `ollama`, `local`, or `hybrid`. Defaults to `gemini`. |
+| `GEMINI_API_KEY` | Required for Gemini. Used by hybrid for cloud escalation. |
+| `AI_MODEL` | Gemini model name. Defaults to `gemini-1.5-flash`. |
+| `OLLAMA_MODEL` | Ollama model name. Defaults to `qwen2.5-coder:7b`. |
+| `OLLAMA_ENDPOINT` | Ollama endpoint. Host-only values are normalized to `/v1/chat/completions`. |
+| `AI_LOCAL_MODEL` | Display name for the local model. |
+| `AI_LOCAL_MODEL_PATH` | Optional path to a local Core ML model artifact. |
+| `AI_MAX_SUGGESTIONS` | Maximum AI suggestions per analyzed file. Defaults to `5`. |
+| `AI_SNIPPET_LINES` | Number of source lines included in each AI prompt. Defaults to `120`. |
+| `AI_VERBOSE` | Prints more raw AI output when `true`. |
+| `AI_TYPEWRITER_MS` | Console typewriter delay for AI output. |
 
 ---
 
-## Rule thresholds (defaults)
+## Configuration Cookbook
 
-Values live in `RuleConstants`. Summary:
+Create `.aianalyzer.json` in the root of the project you want to scan.
 
-**LargeClass** — Per-type method and line ceilings (e.g. VC 25 / 400, VM 20 / 300, service 15 / 250, model 10 / 150, unknown uses JSON threshold for methods and 300 lines).
+### Ignore Generated Or Third-Party Code
 
-**GodObject** — Per-type method, property, and line ceilings; violation requires **≥ 2** simultaneous breaches.
+```json
+{
+  "ignoreDirectories": [
+    "Generated",
+    "Vendor",
+    "TestFixtures"
+  ]
+}
+```
 
-**HighMethodDensity** — Type-specific method ceilings (e.g. VC 18, VM 12, …); extra guards for small files and high avg lines/method.
+These values are unioned with the defaults:
 
-**DataHeavyClass** — Properties > threshold (default `5`); **info** severity.
+```text
+.build, .git, .swiftpm, DerivedData, Pods, Build, Carthage
+```
 
-See source for exact integers.
+### Tune Rule Thresholds
+
+```json
+{
+  "rules": {
+    "largeClass": {
+      "enabled": true,
+      "threshold": 18
+    },
+    "highMethodDensity": {
+      "enabled": true,
+      "threshold": 12
+    },
+    "dataHeavyClass": {
+      "enabled": true,
+      "threshold": 8
+    }
+  }
+}
+```
+
+### Disable A Rule
+
+```json
+{
+  "rules": {
+    "modelServiceUIKit": {
+      "enabled": false
+    }
+  }
+}
+```
+
+Available rule keys:
+
+- `largeClass`
+- `highMethodDensity`
+- `godObject`
+- `dataHeavyClass`
+- `viewModelUIKit`
+- `modelServiceUIKit`
+
+### Store AI Settings In `.aianalyzer.env`
+
+```bash
+AI_ENABLED=true
+AI_PROVIDER=ollama
+OLLAMA_MODEL=qwen2.5-coder:7b
+OLLAMA_ENDPOINT=http://localhost:11434
+AI_MAX_SUGGESTIONS=3
+AI_SNIPPET_LINES=120
+```
+
+For deterministic local tests and CI, prefer:
+
+```bash
+AI_ENABLED=false
+```
 
 ---
 
-## JSON export details
+## Developer Cookbook
 
-- Each issue becomes `IssueReport` with `typeName` from `inferTypeName`: first class whose name appears in the message, else first class in file, else `"UnknownType"`.
-- Severity strings are `Severity.rawValue` (emoji-prefixed).
+### Run The Full Test Suite
+
+```bash
+swift test
+```
+
+### Run One Test Area
+
+```bash
+swift test --filter ModelServiceUIKitRuleTests
+swift test --filter Visitor
+swift test --filter AISuggesterTests
+```
+
+### Smoke Test The CLI
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer Fixtures/SmokeSample.swift --json
+```
+
+### Analyze The Included Sandbox
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer TestSandbox/MessyProject
+```
+
+### Analyze A Real Mac App
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp
+```
+
+### Add A New Rule
+
+1. Add a new type under `Sources/AIAnalyzer/Rules/` that conforms to `Rule`.
+2. Add default configuration in `AnalyzerConfig+Default.swift` if it should be configurable.
+3. Add a property to `AnalyzerConfig.RuleConfig` if it needs a JSON toggle.
+4. Merge the user config in `ConfigLoader`.
+5. Register the rule in `AnalyzerApp.main()`.
+6. Add focused tests under `Tests/AIAnalyzerTests/`.
+7. Decide the severity carefully. Only warning and critical issues are eligible for AI suggestions.
+
+### Add A New AI Provider
+
+1. Create a type under `Sources/AIAnalyzer/AI/` that conforms to `AIProvider`.
+2. Add provider configuration to `AIConstants` and `AIConfiguration` if needed.
+3. Wire provider construction in `AnalyzerApp.buildAISuggester`.
+4. Add unit tests using test doubles from `Tests/AIAnalyzerTests/TestAIProviderStubs.swift`.
+
+### Add A New Output Format
+
+1. Add a reporter under `Sources/AIAnalyzer/Reporting/`.
+2. Conform to `Reporter`.
+3. Add a CLI flag in `AnalyzerApp.parseCLIArguments()`.
+4. Select the reporter in `AnalyzerApp.main()`.
+5. Add tests for formatting if the output is machine-consumed.
 
 ---
 
-## Related docs
+## Source Map
 
-- **`TESTING.md`** — Local test commands; recommends `AI_ENABLED=false` for deterministic runs; notes future `SourceLocationConverter` for precise lines. After the test split, prefer **`swift test --filter <ClassName>`** using the XCTest class names listed under **Recent updates → Test target split by concern** in this README.
+| Folder | Purpose |
+| --- | --- |
+| `Sources/AIAnalyzer/App` | CLI entry point, input validation, environment loading, provider wiring. |
+| `Sources/AIAnalyzer/AI` | AI provider protocols, Gemini/Ollama/local/hybrid providers, prompt and formatter logic. |
+| `Sources/AIAnalyzer/Extension` | Default analyzer configuration. |
+| `Sources/AIAnalyzer/Models` | Shared models such as `ClassInfo`, `Issue`, `AnalyzerConfig`, and summaries. |
+| `Sources/AIAnalyzer/Reporting` | Console and Xcode reporters. |
+| `Sources/AIAnalyzer/Rules` | Static analysis rules and rule engine. |
+| `Sources/AIAnalyzer/Utils` | File scanning and JSON config loading. |
+| `Sources/AIAnalyzer/Visitor` | SwiftSyntax visitor that extracts type metrics. |
+| `Tests/AIAnalyzerTests` | Unit tests by concern. |
+| `Fixtures` | Small smoke-test fixture. |
+| `TestSandbox` | Sample projects for manual analyzer runs. |
 
 ---
 
-## Extending the tool
+## Current Limitations
 
-1. Add a new `struct` conforming to `Rule` under `Sources/AIAnalyzer/Rules/`.
-2. Register it in `AnalyzerApp.main()` after loading config (mirror existing `if config.rules?....enabled` pattern); extend `AnalyzerConfig.RuleConfig` if you need JSON toggles.
-3. If the rule should be toggleable from JSON, add a merge branch in `ConfigLoader.merge` (see `modelServiceUIKit` / `viewModelUIKit` for toggles without thresholds).
-4. Add **unit tests** in a dedicated file under `Tests/AIAnalyzerTests/` named after the concern (keeps the test target easy to navigate).
-5. For AI relevance: use **warning** or **critical** severity if suggestions should fire (or extend `AISuggester` filtering logic).
-
-**Reference implementation for a JSON-only toggle:** `ModelServiceUIKitRule` + `AnalyzerConfig.RuleConfig.modelServiceUIKit` + `ConfigLoader` + `AnalyzerApp` + `Tests/AIAnalyzerTests/ModelServiceUIKitRuleTests.swift`.
+- Type classification is based on type names, not semantic type resolution.
+- Import checks use file-level imports, so every type in the same file sees the same import list.
+- Member line ranges are approximate and based on syntax descriptions, not precise source locations.
+- JSON mode does not include AI suggestions.
+- AI output is advisory and can vary by provider/model.
 
 ---
 
-## License / ownership
+## Related Docs
 
-Project by Johnson Elangbam (see file headers). Dependencies are governed by their respective licenses (SwiftSyntax: Apache 2.0).
+- `TESTING.md` covers test commands and visitor-focused troubleshooting.
+- `Project Roadmap.rtf` contains planning notes.
+
+---
+
+## Ownership
+
+Project by Johnson Elangbam. Dependencies are governed by their own licenses.
