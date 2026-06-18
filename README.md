@@ -213,6 +213,7 @@ Important behavior:
 - JSON mode disables AI suggestions.
 - JSON mode keeps stdout machine-readable.
 - File read errors are written to stderr.
+- Add `--fail-on-critical`, `--fail-on-warning`, or `--strict` when JSON is used as a CI quality gate.
 
 ### Xcode Output
 
@@ -231,6 +232,24 @@ note: [AIAnalyzer] Analysis complete. Found 3 issues in 12 files.
 ```
 
 Xcode can display these as warnings, errors, and notes in the issue navigator.
+
+### CI Exit Gates
+
+By default, AIAnalyzer exits successfully when the scan completes, even if it finds issues. Team scripts and CI jobs can opt into failing behavior:
+
+| Flag | Exit behavior |
+| --- | --- |
+| `--fail-on-critical` | Exit `1` when at least one critical issue is found. |
+| `--fail-on-warning` | Exit `1` when at least one warning or critical issue is found. |
+| `--strict` | Exit `1` when any issue is found, including info-level findings. |
+
+Examples:
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --json --fail-on-critical
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --xcode --fail-on-warning
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --strict
+```
 
 ---
 
@@ -443,6 +462,26 @@ AI_ENABLED=false swift run AIAnalyzer TestSandbox/MessyProject
 
 ```bash
 AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp
+```
+
+### Use As A Pull Request Gate
+
+Start with critical-only gating so the analyzer can be introduced without blocking teams on every advisory finding:
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp --json --fail-on-critical
+```
+
+As the project adopts the rules, tighten the gate:
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp --json --fail-on-warning
+```
+
+Use strict mode only when the project has a clean baseline:
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp --json --strict
 ```
 
 ### Add A New Rule
