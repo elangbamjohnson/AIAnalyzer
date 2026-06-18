@@ -49,19 +49,19 @@ jobs:
 Start with critical-only blocking:
 
 ```bash
-AIAnalyzer . --format sarif --fail-on-critical > aianalyzer.sarif
+aianalyzer . --format sarif --fail-on-critical > aianalyzer.sarif
 ```
 
 After the team has cleaned up the most important findings, tighten the gate:
 
 ```bash
-AIAnalyzer . --format sarif --fail-on-warning > aianalyzer.sarif
+aianalyzer . --format sarif --fail-on-warning > aianalyzer.sarif
 ```
 
 Use strict mode only when the project has a clean baseline:
 
 ```bash
-AIAnalyzer . --format sarif --strict > aianalyzer.sarif
+aianalyzer . --format sarif --strict > aianalyzer.sarif
 ```
 
 ## Local Script
@@ -72,7 +72,7 @@ For teams that prefer a checked-in script, create `scripts/analyze.sh` in the ap
 #!/bin/bash
 set -euo pipefail
 
-AIANALYZER="${AIANALYZER:-AIAnalyzer}"
+AIANALYZER="${AIANALYZER:-aianalyzer}"
 TARGET_PATH="${1:-.}"
 
 "$AIANALYZER" "$TARGET_PATH" --format sarif --fail-on-critical > aianalyzer.sarif

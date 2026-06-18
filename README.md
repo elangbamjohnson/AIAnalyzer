@@ -2,13 +2,27 @@
 
 AIAnalyzer is a Swift command-line tool that scans Swift source code, finds common architecture and maintainability problems, and can optionally ask an AI provider for refactoring suggestions.
 
-Think of it as a lightweight static-analysis assistant for Mac and iOS projects. New developers can run it locally, wire it into Xcode, or use the JSON output in scripts and CI.
+Think of it as a lightweight static-analysis assistant for Mac and iOS projects. New developers can install it with Homebrew, run it locally, wire it into Xcode, or use JSON/SARIF output in scripts and CI.
 
 ---
 
 ## Quick Start
 
-Run these commands from this repository:
+Install the published command-line tool with Homebrew:
+
+```bash
+brew install elangbamjohnson/tap/aianalyzer
+aianalyzer --help
+```
+
+Scan a Swift file or project:
+
+```bash
+aianalyzer /path/to/YourMacProject
+aianalyzer /path/to/YourMacProject --format sarif > aianalyzer.sarif
+```
+
+Or run from this repository while developing AIAnalyzer itself:
 
 ```bash
 swift build
@@ -26,12 +40,20 @@ Emit Xcode-compatible diagnostics:
 
 ```bash
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --xcode
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --format xcode
 ```
 
 Emit machine-readable JSON:
 
 ```bash
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --json
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --format json
+```
+
+Emit SARIF for GitHub code scanning:
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --format sarif > aianalyzer.sarif
 ```
 
 ---
@@ -46,9 +68,11 @@ AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --json
 | Parser | SwiftParser | Parses Swift source into a syntax tree. |
 | Syntax tree API | SwiftSyntax | Visits declarations and extracts structure from Swift files. |
 | Testing | XCTest through `swift test` | Unit tests cover rules, visitor behavior, AI orchestration, and input validation. |
-| Reporting | Console, JSON, Xcode diagnostics | Outputs findings for humans, automation, and Xcode integration. |
+| Reporting | Console, JSON, Xcode diagnostics, SARIF | Outputs findings for humans, automation, Xcode, and GitHub code scanning. |
 | AI providers | Gemini, Ollama, local/Core ML, hybrid | Optional suggestions for warning and critical issues. |
 | Configuration | `.aianalyzer.json`, `.aianalyzer.env`, environment variables | Controls ignored folders, rule toggles, thresholds, and AI runtime settings. |
+| Distribution | GitHub Releases and Homebrew tap | Publishes a zipped macOS binary and installs it through `elangbamjohnson/tap`. |
+| CI integration | GitHub Actions and SARIF upload | Runs analysis in pull requests and can upload findings to GitHub code scanning. |
 
 Primary dependency from `Package.swift`:
 
@@ -72,7 +96,7 @@ flowchart TD
     Parser["SwiftParser + SwiftSyntax"]
     Rules["Rule engine"]
     AI["Optional AI suggestion layer"]
-    Output["Console, JSON, or Xcode diagnostics"]
+    Output["Console, JSON, Xcode diagnostics, or SARIF"]
     Fix["Developer reviews and fixes code"]
 
     Dev --> MacProject
@@ -93,8 +117,9 @@ Recommended local workflow:
 1. Add a project-level `.aianalyzer.json` when you need custom ignores or thresholds.
 2. Run the analyzer before large refactors or before opening a pull request.
 3. Use `--xcode` when you want findings to appear as Xcode warnings/errors.
-4. Use `--json` when another tool or CI job needs to consume the results.
-5. Turn AI on only when you want explanation and refactoring help, not for deterministic test runs.
+4. Use `--format sarif` when GitHub code scanning should display the findings.
+5. Use `--json` when another tool or CI job needs to consume the results.
+6. Turn AI on only when you want explanation and refactoring help, not for deterministic test runs.
 
 ---
 
@@ -154,7 +179,7 @@ flowchart LR
 
 Detailed sequence:
 
-1. The CLI reads `--json`, `--xcode`, and one optional input path.
+1. The CLI reads one optional input path, `--format`, legacy shortcuts such as `--json` and `--xcode`, quality-gate flags, and `--help`.
 2. The input path is validated. A single file must be a `.swift` file.
 3. `.aianalyzer.env` is loaded from the config root when present.
 4. `.aianalyzer.json` is loaded and merged with default settings.
@@ -162,10 +187,94 @@ Detailed sequence:
 6. `SwiftParser` parses each source file.
 7. `ClassVisitor` collects type metrics, member counts, line estimates, and imports.
 8. `RuleEngine` evaluates each rule and suppresses some duplicate noise when `GodObjectRule` already fired.
-9. The app prints console output, JSON, or Xcode-compatible diagnostics.
+9. The app prints console output, JSON, SARIF, or Xcode-compatible diagnostics.
 10. If AI is enabled and configured, warning and critical findings are enriched with suggestions.
 
 ---
+
+## Install And Distribution
+
+AIAnalyzer is distributed as a macOS command-line executable through GitHub Releases and a Homebrew tap.
+
+### Install With Homebrew
+
+For most users:
+
+```bash
+brew install elangbamjohnson/tap/aianalyzer
+aianalyzer --help
+```
+
+Equivalent two-step install:
+
+```bash
+brew tap elangbamjohnson/tap
+brew install aianalyzer
+```
+
+Verify the install:
+
+```bash
+aianalyzer --help
+aianalyzer /path/to/YourMacProject --format sarif > aianalyzer.sarif
+```
+
+Current distribution shape:
+
+- The Homebrew formula lives in the public `elangbamjohnson/homebrew-tap` repository.
+- The formula downloads `aianalyzer-macos-arm64.zip` from the public `elangbamjohnson/AIAnalyzer` GitHub Release.
+- The formula verifies the release asset with `sha256`.
+- The installed command is `aianalyzer`.
+- The current release asset is Apple Silicon macOS. Add an Intel or universal binary before advertising full Intel Mac support.
+
+### Release Maintainer Checklist
+
+Use this when publishing a new AIAnalyzer version:
+
+```bash
+git checkout main
+git pull origin main
+swift test
+swift build -c release
+git tag -a v0.1.2 -m "AIAnalyzer v0.1.2"
+git push origin v0.1.2
+```
+
+After GitHub Actions creates the release asset:
+
+```bash
+curl -L -o /tmp/aianalyzer-macos-arm64.zip \
+  https://github.com/elangbamjohnson/AIAnalyzer/releases/download/v0.1.2/aianalyzer-macos-arm64.zip
+
+shasum -a 256 /tmp/aianalyzer-macos-arm64.zip
+```
+
+Then update the Homebrew formula:
+
+1. Change the formula URL to the new `v*` release.
+2. Replace `sha256` with the new checksum.
+3. Run `brew fetch --force elangbamjohnson/tap/aianalyzer`.
+4. Run `brew test elangbamjohnson/tap/aianalyzer`.
+5. Commit and push the formula in `elangbamjohnson/homebrew-tap`.
+
+### Public Install Verification
+
+To test like a fresh user:
+
+```bash
+brew uninstall aianalyzer
+brew untap elangbamjohnson/tap
+brew update
+brew install elangbamjohnson/tap/aianalyzer
+aianalyzer --help
+brew test elangbamjohnson/tap/aianalyzer
+```
+
+Also confirm these public URLs return `200`:
+
+- `https://github.com/elangbamjohnson/AIAnalyzer`
+- `https://github.com/elangbamjohnson/homebrew-tap`
+- `https://raw.githubusercontent.com/elangbamjohnson/homebrew-tap/main/Formula/aianalyzer.rb`
 
 ## Output Modes
 
@@ -174,6 +283,7 @@ Detailed sequence:
 Default mode is meant for humans.
 
 ```bash
+aianalyzer /path/to/YourMacProject
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject
 ```
 
@@ -192,6 +302,7 @@ It prints:
 Use JSON when another tool needs to consume the result.
 
 ```bash
+aianalyzer /path/to/YourMacProject --format json
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --json
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --format json
 ```
@@ -221,6 +332,7 @@ Important behavior:
 Use SARIF when GitHub code scanning or another SARIF-compatible tool should consume the result.
 
 ```bash
+aianalyzer /path/to/YourMacProject --format sarif > aianalyzer.sarif
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --format sarif > aianalyzer.sarif
 ```
 
@@ -252,6 +364,7 @@ SARIF mode disables AI suggestions and keeps stdout machine-readable. Diagnostic
 Use Xcode mode when running the analyzer from a Run Script phase or a local script opened from Xcode.
 
 ```bash
+aianalyzer /path/to/YourMacProject --format xcode
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --xcode
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --format xcode
 ```
@@ -279,6 +392,7 @@ By default, AIAnalyzer exits successfully when the scan completes, even if it fi
 Examples:
 
 ```bash
+aianalyzer /path/to/YourMacProject --format sarif --fail-on-critical
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --json --fail-on-critical
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --xcode --fail-on-warning
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --strict
@@ -518,7 +632,9 @@ swift test --filter AISuggesterTests
 ### Smoke Test The CLI
 
 ```bash
+swift run AIAnalyzer --help
 AI_ENABLED=false swift run AIAnalyzer Fixtures/SmokeSample.swift --json
+AI_ENABLED=false swift run AIAnalyzer Fixtures/SmokeSample.swift --format sarif
 ```
 
 ### Analyze The Included Sandbox
@@ -572,11 +688,12 @@ AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp --json --stri
 
 ### Add A New Output Format
 
-1. Add a reporter under `Sources/AIAnalyzer/Reporting/`.
-2. Conform to `Reporter`.
-3. Add a CLI flag in `AnalyzerApp.parseCLIArguments()`.
-4. Select the reporter in `AnalyzerApp.main()`.
-5. Add tests for formatting if the output is machine-consumed.
+1. Add a formatter or reporter under `Sources/AIAnalyzer/Reporting/`.
+2. Use `Reporter` for streaming human/Xcode output, or an encodable report model for machine-readable formats like SARIF.
+3. Add the format to `AnalyzerApp.OutputFormat`.
+4. Parse the format in `AnalyzerApp.parseCLIArguments()`.
+5. Emit the format in `AnalyzerApp.main()`.
+6. Add tests for formatting if the output is machine-consumed.
 
 ---
 
@@ -588,11 +705,15 @@ AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp --json --stri
 | `Sources/AIAnalyzer/AI` | AI provider protocols, Gemini/Ollama/local/hybrid providers, prompt and formatter logic. |
 | `Sources/AIAnalyzer/Extension` | Default analyzer configuration. |
 | `Sources/AIAnalyzer/Models` | Shared models such as `ClassInfo`, `Issue`, `AnalyzerConfig`, and summaries. |
-| `Sources/AIAnalyzer/Reporting` | Console and Xcode reporters. |
+| `Sources/AIAnalyzer/Reporting` | Console and Xcode reporters, plus SARIF report generation. |
 | `Sources/AIAnalyzer/Rules` | Static analysis rules and rule engine. |
 | `Sources/AIAnalyzer/Utils` | File scanning and JSON config loading. |
 | `Sources/AIAnalyzer/Visitor` | SwiftSyntax visitor that extracts type metrics. |
 | `Tests/AIAnalyzerTests` | Unit tests by concern. |
+| `.github/workflows` | CI and release automation. |
+| `docs/integrations` | GitHub Actions and SARIF integration examples. |
+| `docs/distribution` | Homebrew publishing guide. |
+| `packaging/homebrew` | Homebrew formula template. |
 | `Fixtures` | Small smoke-test fixture. |
 | `TestSandbox` | Sample projects for manual analyzer runs. |
 
@@ -603,7 +724,7 @@ AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp --json --stri
 - Type classification is based on type names, not semantic type resolution.
 - Import checks use file-level imports, so every type in the same file sees the same import list.
 - Member line ranges are approximate and based on syntax descriptions, not precise source locations.
-- JSON mode does not include AI suggestions.
+- Machine-readable JSON and SARIF modes do not include AI suggestions.
 - AI output is advisory and can vary by provider/model.
 
 ---

@@ -1,0 +1,9 @@
+[
+  {
+    "file" : "UltimateGodViewController.swift",
+    "message" : "Type MainAppViewController is a God Object (Major SRP violation). It exceeds multiple limits: 41 methods, 21 properties.",
+    "rule" : "GodObject",
+    "severity" : "🔴",
+    "typeName" : "MainAppViewController"
+  }
+]
