@@ -10,9 +10,7 @@ public struct XcodeReporter: Reporter {
     }
 
     public func report(file: String, classes: [ClassInfo], issues: [Issue]) {
-        // Find the full path for the file within the rootPath
-        let fileURL = URL(fileURLWithPath: rootPath).appendingPathComponent(file)
-        let fullPath = fileURL.path
+        let fullPath = resolvedPath(for: file)
 
         for issue in issues {
             let line = issue.line ?? 1
@@ -33,5 +31,16 @@ public struct XcodeReporter: Reporter {
         // Xcode reporter typically doesn't need a summary, as it prefers inline markers.
         // However, we can emit a note for the final count.
         print("note: [AIAnalyzer] Analysis complete. Found \(summary.issueCounts.total) issues in \(summary.totalFiles) files.")
+    }
+
+    private func resolvedPath(for file: String) -> String {
+        if file.hasPrefix("/") {
+            return URL(fileURLWithPath: file).standardized.path
+        }
+
+        return URL(fileURLWithPath: rootPath)
+            .appendingPathComponent(file)
+            .standardized
+            .path
     }
 }

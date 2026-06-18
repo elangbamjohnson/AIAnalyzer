@@ -128,10 +128,10 @@ struct AnalyzerApp {
                 let visitor = ClassVisitor(viewMode: .all, fileImports: fileImports)
                 visitor.walk(sourceFile)
                 
-                let fileName = URL(fileURLWithPath: filePath).lastPathComponent
+                let displayPath = relativePath(for: filePath, rootPath: rootPath)
                 
                 let issues = engine.analyze(visitor.classes)
-                fileIssueMap[fileName] = issues
+                fileIssueMap[displayPath] = issues
                 
                 summary.totalClasses += visitor.classes.count
                 summary.addIssues(issues)
@@ -143,14 +143,14 @@ struct AnalyzerApp {
                             rule: issue.ruleName,
                             severity: issue.severity.rawValue,
                             message: issue.message,
-                            file: fileName,
+                            file: displayPath,
                             line: issue.line,
                             typeName: inferTypeName(for: issue, classes: visitor.classes)
                         ))
                     }
                 } else {
                     // Use reporter for per-file results
-                    reporter.report(file: fileName, classes: visitor.classes, issues: issues)
+                    reporter.report(file: displayPath, classes: visitor.classes, issues: issues)
 
                     if let suggester = buildAISuggester(configuration: aiConfiguration) {
                         let suggestions = await suggester.generateSuggestions(
@@ -165,7 +165,7 @@ struct AnalyzerApp {
                                 filePath: filePath
                             )
                         } else {
-                            reportAISuggestions(suggestions, file: fileName)
+                            reportAISuggestions(suggestions, file: displayPath)
                         }
                     }
                 }
@@ -217,6 +217,25 @@ struct AnalyzerApp {
             return classInfo.name
         }
         return classes.first?.name ?? "UnknownType"
+    }
+
+    /// Produces a stable path for reports. Directory scans use paths relative to the scan root,
+    /// while single-file scans fall back to the file name.
+    private static func relativePath(for filePath: String, rootPath: String) -> String {
+        let fileURL = URL(fileURLWithPath: filePath).standardizedFileURL
+        let rootURL = URL(fileURLWithPath: rootPath).standardizedFileURL
+
+        let fileComponents = fileURL.pathComponents
+        let rootComponents = rootURL.pathComponents
+
+        guard fileComponents.starts(with: rootComponents) else {
+            return fileURL.lastPathComponent
+        }
+
+        let relativeComponents = fileComponents.dropFirst(rootComponents.count)
+        return relativeComponents.isEmpty
+            ? fileURL.lastPathComponent
+            : relativeComponents.joined(separator: "/")
     }
 
     /// Builds an `AISuggester` from runtime configuration and provider strategy.
