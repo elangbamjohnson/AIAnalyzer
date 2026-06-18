@@ -428,6 +428,30 @@ For deterministic local tests and CI, prefer:
 AI_ENABLED=false
 ```
 
+### Suppress A Known Finding
+
+Use a source comment when a rule is intentionally noisy for a specific file. Suppressions are file-level and apply before reporting, summaries, CI gates, and AI suggestions.
+
+Disable one rule for the file:
+
+```swift
+// aianalyzer:disable LargeClass
+```
+
+Disable multiple rules:
+
+```swift
+// aianalyzer:disable LargeClass, GodObject
+```
+
+Disable every analyzer finding for the file:
+
+```swift
+// aianalyzer:disable all
+```
+
+Prefer narrow rule suppressions over `all`, and add a normal code comment explaining why the exception is intentional.
+
 ---
 
 ## Developer Cookbook
