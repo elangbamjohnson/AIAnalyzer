@@ -106,10 +106,11 @@ public struct AISuggester {
     /// - Parameter source: The full source code.
     /// - Returns: A truncated code snippet.
     private func buildSnippet(_ source: String) -> String {
-        return source
+        let snippet = source
             .split(separator: "\n", omittingEmptySubsequences: false)
             .prefix(snippetLineLimit)
             .joined(separator: "\n")
+        return SourceRedactor.redact(snippet)
     }
 
     /// Attempts to find the specific `ClassInfo` associated with an issue message.

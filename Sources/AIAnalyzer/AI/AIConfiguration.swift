@@ -16,19 +16,22 @@ public struct AIConfiguration {
         public let ollamaModel: String
         public let ollamaEndpoint: String
         public let apiKey: String?
+        public let cloudOptIn: Bool
 
         public init(
             providerType: AIConstants.ProviderType,
             model: String,
             ollamaModel: String,
             ollamaEndpoint: String,
-            apiKey: String?
+            apiKey: String?,
+            cloudOptIn: Bool
         ) {
             self.providerType = providerType
             self.model = model
             self.ollamaModel = ollamaModel
             self.ollamaEndpoint = ollamaEndpoint
             self.apiKey = apiKey
+            self.cloudOptIn = cloudOptIn
         }
     }
 
@@ -85,8 +88,8 @@ public struct AIConfiguration {
     public static func fromEnvironment() -> AIConfiguration {
         let enabled = (environmentValue(for: "AI_ENABLED") ?? "false").lowercased() == "true"
 
-        let providerRaw = environmentValue(for: "AI_PROVIDER") ?? "gemini"
-        let providerType = AIConstants.ProviderType(rawValue: providerRaw.lowercased()) ?? .gemini
+        let providerRaw = environmentValue(for: "AI_PROVIDER") ?? "local"
+        let providerType = AIConstants.ProviderType(rawValue: providerRaw.lowercased()) ?? .local
 
         // 1. Resolve and normalize Cloud Model (Gemini).
         let rawModel = environmentValue(for: "AI_MODEL") ?? "gemini-1.5-flash"
@@ -101,6 +104,7 @@ public struct AIConfiguration {
         let ollamaEndpoint = normalizeOllamaEndpoint(rawOllamaEndpoint)
 
         let apiKey = environmentValue(for: "GEMINI_API_KEY")
+        let cloudOptIn = boolEnvironmentValue(for: "AI_CLOUD_OPT_IN")
         let localModelPath = normalizedOptionalPath(environmentValue(for: "AI_LOCAL_MODEL_PATH"))
 
         let maxSuggestions = Int(environmentValue(for: "AI_MAX_SUGGESTIONS") ?? "") ?? AIConstants.Defaults.maxSuggestions
@@ -111,7 +115,8 @@ public struct AIConfiguration {
             model: model,
             ollamaModel: ollamaModel,
             ollamaEndpoint: ollamaEndpoint,
-            apiKey: apiKey
+            apiKey: apiKey,
+            cloudOptIn: cloudOptIn
         )
         let localModelConfig = AILocalModelConfiguration(
             localModelName: localModelName,
@@ -135,6 +140,19 @@ public struct AIConfiguration {
             return String(trimmed.dropFirst(modelsPrefix.count))
         }
         return trimmed
+    }
+
+    private static func boolEnvironmentValue(for key: String) -> Bool {
+        guard let raw = environmentValue(for: key) else {
+            return false
+        }
+
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "true", "1", "yes", "y":
+            return true
+        default:
+            return false
+        }
     }
 
     /// Treats blank `AI_LOCAL_MODEL_PATH` as unset so Core ML is not attempted with an empty path.

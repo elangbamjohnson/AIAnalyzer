@@ -255,7 +255,7 @@ AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --strict
 
 ## How AI Assistance Works
 
-AI is optional. Static analysis always runs first. The AI layer only receives warning and critical findings, so informational issues do not generate AI requests.
+AI is optional. Static analysis always runs first. The AI layer only receives warning and critical findings, so informational issues do not generate AI requests. Source snippets are redacted for common secret patterns before they are sent to any AI provider.
 
 ```mermaid
 flowchart TD
@@ -304,6 +304,7 @@ Gemini:
 ```bash
 AI_ENABLED=true \
 AI_PROVIDER=gemini \
+AI_CLOUD_OPT_IN=true \
 GEMINI_API_KEY=your_key_here \
 swift run AIAnalyzer /path/to/YourMacProject
 ```
@@ -324,17 +325,21 @@ Hybrid local-first mode:
 AI_ENABLED=true \
 AI_PROVIDER=hybrid \
 OLLAMA_MODEL=qwen2.5-coder:7b \
+AI_CLOUD_OPT_IN=true \
 GEMINI_API_KEY=your_key_here \
 swift run AIAnalyzer /path/to/YourMacProject
 ```
+
+Without `AI_CLOUD_OPT_IN=true`, hybrid mode stays local-only even when `GEMINI_API_KEY` is present.
 
 ### AI Environment Variables
 
 | Variable | Purpose |
 | --- | --- |
 | `AI_ENABLED` | Must be `true` to enable AI suggestions. |
-| `AI_PROVIDER` | `gemini`, `ollama`, `local`, or `hybrid`. Defaults to `gemini`. |
-| `GEMINI_API_KEY` | Required for Gemini. Used by hybrid for cloud escalation. |
+| `AI_PROVIDER` | `gemini`, `ollama`, `local`, or `hybrid`. Defaults to `local`. |
+| `AI_CLOUD_OPT_IN` | Must be `true` to allow Gemini/cloud requests. Defaults to `false`. |
+| `GEMINI_API_KEY` | Required for Gemini after cloud opt-in. Used by hybrid for cloud escalation only when `AI_CLOUD_OPT_IN=true`. |
 | `AI_MODEL` | Gemini model name. Defaults to `gemini-1.5-flash`. |
 | `OLLAMA_MODEL` | Ollama model name. Defaults to `qwen2.5-coder:7b`. |
 | `OLLAMA_ENDPOINT` | Ollama endpoint. Host-only values are normalized to `/v1/chat/completions`. |
@@ -344,6 +349,13 @@ swift run AIAnalyzer /path/to/YourMacProject
 | `AI_SNIPPET_LINES` | Number of source lines included in each AI prompt. Defaults to `120`. |
 | `AI_VERBOSE` | Prints more raw AI output when `true`. |
 | `AI_TYPEWRITER_MS` | Console typewriter delay for AI output. |
+
+Privacy notes:
+
+- Cloud AI is opt-in. Setting `AI_ENABLED=true` alone does not permit Gemini requests.
+- `AI_PROVIDER=local` and `AI_PROVIDER=ollama` keep prompts on the local machine/network endpoint you configure.
+- `AI_PROVIDER=hybrid` starts local-first and only escalates to Gemini when both `AI_CLOUD_OPT_IN=true` and `GEMINI_API_KEY` are set.
+- AIAnalyzer redacts common `apiKey`, `token`, `secret`, `password`, `clientSecret`, and bearer-token patterns from snippets before prompt construction.
 
 ---
 

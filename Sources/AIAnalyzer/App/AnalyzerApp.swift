@@ -315,6 +315,11 @@ struct AnalyzerApp {
 
         switch configuration.serviceConfig.providerType {
         case .gemini:
+            guard configuration.serviceConfig.cloudOptIn else {
+                print("⚠️ AI_PROVIDER=gemini requires AI_CLOUD_OPT_IN=true because source snippets may leave this machine.")
+                return nil
+            }
+
             guard let apiKey = configuration.serviceConfig.apiKey, !apiKey.isEmpty else {
                 print("⚠️ AI is set to \'gemini\' but GEMINI_API_KEY is missing.")
                 return nil
@@ -332,11 +337,17 @@ struct AnalyzerApp {
 
         case .hybrid:
             let cloud: AIProvider?
-            if let apiKey = configuration.serviceConfig.apiKey, !apiKey.isEmpty {
+            if configuration.serviceConfig.cloudOptIn,
+               let apiKey = configuration.serviceConfig.apiKey,
+               !apiKey.isEmpty {
                 cloud = GeminiProvider(apiKey: apiKey, model: configuration.serviceConfig.model)
             } else {
                 cloud = nil
-                print("ℹ️ Hybrid mode running without GEMINI_API_KEY. Using local fallback path.")
+                if configuration.serviceConfig.cloudOptIn {
+                    print("ℹ️ Hybrid mode cloud escalation requested, but GEMINI_API_KEY is missing. Using local fallback path.")
+                } else {
+                    print("ℹ️ Hybrid mode running local-only. Set AI_CLOUD_OPT_IN=true to allow Gemini escalation.")
+                }
             }
 
             // Prefer Ollama as the local tier in Hybrid mode
