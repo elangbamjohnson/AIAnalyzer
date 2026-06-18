@@ -139,7 +139,11 @@ struct AnalyzerApp {
                 
                 let displayPath = relativePath(for: filePath, rootPath: rootPath)
                 
-                let issues = engine.analyze(visitor.classes)
+                let suppressedRules = SuppressionParser.suppressedRuleNames(in: source)
+                let issues = SuppressionParser.filter(
+                    engine.analyze(visitor.classes),
+                    suppressedRuleNames: suppressedRules
+                )
                 fileIssueMap[displayPath] = issues
                 
                 summary.totalClasses += visitor.classes.count
