@@ -11,6 +11,15 @@ import SwiftSyntax
 /// Command-line entry point that coordinates scanning, analysis, reporting, and AI suggestions.
 @main
 struct AnalyzerApp {
+    private struct CLIOptions {
+        let isJsonMode: Bool
+        let isXcodeMode: Bool
+        let failOnWarning: Bool
+        let failOnCritical: Bool
+        let strict: Bool
+        let inputPath: String
+    }
+
     /// Runs the full analyzer lifecycle:
     /// - validates CLI input
     /// - discovers target Swift files
@@ -19,13 +28,13 @@ struct AnalyzerApp {
     /// - optionally enriches results with AI suggestions
     /// - emits per-file and summary reports
     static func main() async {
-        let (isJsonMode, isXcodeMode, inputPath) = parseCLIArguments()
-        let fullPath = URL(fileURLWithPath: inputPath).standardized.path
+        let options = parseCLIArguments()
+        let fullPath = URL(fileURLWithPath: options.inputPath).standardized.path
         
         var isDirectory: ObjCBool = false
         
         guard FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDirectory) else {
-            emitError("Path does not exist", isJsonMode: isJsonMode)
+            emitError("Path does not exist", isJsonMode: options.isJsonMode)
             exit(1)
         }
 
@@ -33,7 +42,7 @@ struct AnalyzerApp {
             for: fullPath,
             isDirectory: isDirectory.boolValue
         ) {
-            emitError(validationError, isJsonMode: isJsonMode)
+            emitError(validationError, isJsonMode: options.isJsonMode)
             exit(1)
         }
         
@@ -42,7 +51,7 @@ struct AnalyzerApp {
             ? fullPath
             : URL(fileURLWithPath: fullPath).deletingLastPathComponent().path
 
-        EnvironmentFileLoader.apply(fromRootPath: rootPath)
+        EnvironmentFileLoader.apply(fromRootPath: rootPath, isJsonMode: options.isJsonMode)
         
         let config = ConfigLoader.load(from: rootPath)
         
@@ -50,18 +59,18 @@ struct AnalyzerApp {
         let filePaths: [String]
         
         if isDirectory.boolValue {
-            if !isJsonMode && !isXcodeMode { print("📂 Scanning folder: \(fullPath)") }
+            if !options.isJsonMode && !options.isXcodeMode { print("📂 Scanning folder: \(fullPath)") }
             filePaths = FileScanner.getSwiftFiles(in: fullPath, ignoring: config.ignoreDirectories)
         } else {
             filePaths = [fullPath]
         }
         
         guard !filePaths.isEmpty else {
-            if !isJsonMode && !isXcodeMode { print("⚠️ No Swift files found.") }
+            if !options.isJsonMode && !options.isXcodeMode { print("⚠️ No Swift files found.") }
             exit(0)
         }
         
-        if !isJsonMode && !isXcodeMode { print("📊 Found \(filePaths.count) Swift files\n") }
+        if !options.isJsonMode && !options.isXcodeMode { print("📊 Found \(filePaths.count) Swift files\n") }
         
         // 4. Build rules from config
         var rules: [Rule] = []
@@ -94,7 +103,7 @@ struct AnalyzerApp {
         }
         
         let engine = RuleEngine(rules: rules)
-        let reporter: Reporter = isXcodeMode ? XcodeReporter(rootPath: rootPath) : ConsoleReporter()
+        let reporter: Reporter = options.isXcodeMode ? XcodeReporter(rootPath: rootPath) : ConsoleReporter()
         let aiConfiguration = AIConfiguration.fromEnvironment()
         
         var summary = AnalysisSummary()
@@ -136,7 +145,7 @@ struct AnalyzerApp {
                 summary.totalClasses += visitor.classes.count
                 summary.addIssues(issues)
                 
-                if isJsonMode {
+                if options.isJsonMode {
                     // Map canonical rule-engine output to machine-readable reports.
                     for issue in issues {
                         allIssueReports.append(IssueReport(
@@ -158,7 +167,7 @@ struct AnalyzerApp {
                             classes: visitor.classes,
                             sourceCode: source
                         )
-                        if isXcodeMode {
+                        if options.isXcodeMode {
                             reportAISuggestionsForXcode(
                                 suggestions,
                                 issues: issues,
@@ -172,34 +181,50 @@ struct AnalyzerApp {
                 
             } catch {
                 hasProcessingErrors = true
-                emitError("Error reading file: \(filePath)\n   \(error)", isJsonMode: isJsonMode)
+                emitError("Error reading file: \(filePath)\n   \(error)", isJsonMode: options.isJsonMode)
             }
         }
         
         // 6. Final summary
-        if isJsonMode {
+        if options.isJsonMode {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             if let data = try? encoder.encode(allIssueReports), let jsonString = String(data: data, encoding: .utf8) {
                 print(jsonString)
             }
-            if hasProcessingErrors {
-                exit(1)
-            }
         } else {
             reporter.reportSummary(summary, fileIssueMap: fileIssueMap)
+        }
+
+        let exitCode = finalExitCode(
+            summary: summary,
+            hasProcessingErrors: hasProcessingErrors,
+            options: options
+        )
+        if exitCode != 0 {
+            exit(exitCode)
         }
     }
 
     /// Parses command-line arguments and validates required positional input.
-    private static func parseCLIArguments() -> (isJsonMode: Bool, isXcodeMode: Bool, inputPath: String) {
+    private static func parseCLIArguments() -> CLIOptions {
         let arguments = Array(CommandLine.arguments.dropFirst())
         let isJsonMode = arguments.contains("--json")
         let isXcodeMode = arguments.contains("--xcode")
+        let strict = arguments.contains("--strict")
+        let failOnWarning = arguments.contains("--fail-on-warning")
+        let failOnCritical = arguments.contains("--fail-on-critical")
         let positional = arguments.filter { !$0.hasPrefix("--") }
 
         let inputPath = positional.first ?? "sample.swift"
-        return (isJsonMode, isXcodeMode, inputPath)
+        return CLIOptions(
+            isJsonMode: isJsonMode,
+            isXcodeMode: isXcodeMode,
+            failOnWarning: failOnWarning,
+            failOnCritical: failOnCritical,
+            strict: strict,
+            inputPath: inputPath
+        )
     }
 
     /// Emits errors to stderr in JSON mode to avoid corrupting machine-readable stdout.
@@ -209,6 +234,35 @@ struct AnalyzerApp {
         } else {
             print("❌ \(message)")
         }
+    }
+
+    /// Determines whether the process should fail for CI / script quality gates.
+    ///
+    /// Exit code `1` is intentionally used for both processing errors and failed quality gates
+    /// so shell scripts and CI systems can treat the run as unsuccessful without extra mapping.
+    private static func finalExitCode(
+        summary: AnalysisSummary,
+        hasProcessingErrors: Bool,
+        options: CLIOptions
+    ) -> Int32 {
+        if hasProcessingErrors {
+            return 1
+        }
+
+        if options.strict && summary.issueCounts.total > 0 {
+            return 1
+        }
+
+        if options.failOnWarning &&
+            (summary.issueCounts.warnings > 0 || summary.issueCounts.criticals > 0) {
+            return 1
+        }
+
+        if options.failOnCritical && summary.issueCounts.criticals > 0 {
+            return 1
+        }
+
+        return 0
     }
 
     /// Best-effort mapping of an issue to a type name for JSON output.
@@ -420,7 +474,7 @@ private enum EnvironmentFileLoader {
         return found
     }
 
-    static func apply(fromRootPath rootPath: String) {
+    static func apply(fromRootPath rootPath: String, isJsonMode: Bool) {
         let chain = envFileChain(fromRootPath: rootPath)
         guard let outermost = chain.last else {
             return
@@ -428,11 +482,17 @@ private enum EnvironmentFileLoader {
 
         if chain.count > 1 {
             let ignored = chain.dropLast().map(\.path).joined(separator: ", ")
-            print("warning: [AIAnalyzer] Multiple .aianalyzer.env files found; ignoring nested: \(ignored)")
+            emitWarning(
+                "Multiple .aianalyzer.env files found; ignoring nested: \(ignored)",
+                isJsonMode: isJsonMode
+            )
         }
 
         guard let contents = try? String(contentsOf: outermost, encoding: .utf8) else {
-            print("⚠️ Could not read \(outermost.path); continuing with shell environment variables.")
+            emitWarning(
+                "Could not read \(outermost.path); continuing with shell environment variables.",
+                isJsonMode: isJsonMode
+            )
             return
         }
 
@@ -453,10 +513,20 @@ private enum EnvironmentFileLoader {
             providerSource = "source: unset (AIConfiguration defaults to gemini when absent)"
         }
 
-        print(
-            "warning: [AIAnalyzer] Loaded env from \(outermost.path) "
-                + "(AI_PROVIDER=\(providerLabel); \(providerSource); envLogFmt=v2)"
+        emitWarning(
+            "Loaded env from \(outermost.path) "
+                + "(AI_PROVIDER=\(providerLabel); \(providerSource); envLogFmt=v2)",
+            isJsonMode: isJsonMode
         )
+    }
+
+    private static func emitWarning(_ message: String, isJsonMode: Bool) {
+        let formatted = "warning: [AIAnalyzer] \(message)\n"
+        if isJsonMode {
+            fputs(formatted, stderr)
+        } else {
+            print(formatted, terminator: "")
+        }
     }
 
     private static func getenvString(_ name: String) -> String? {
