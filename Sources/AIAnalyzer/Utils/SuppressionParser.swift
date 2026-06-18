@@ -20,11 +20,12 @@ struct SuppressionParser {
         var suppressed: Set<String> = []
 
         for line in source.split(separator: "\n", omittingEmptySubsequences: false) {
-            guard let commentRange = line.range(of: "//") else {
+            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+            guard trimmedLine.hasPrefix("//") else {
                 continue
             }
 
-            let comment = line[commentRange.upperBound...]
+            let comment = trimmedLine.dropFirst(2)
             guard let directiveRange = comment.range(of: directive) else {
                 continue
             }
@@ -43,11 +44,11 @@ struct SuppressionParser {
             return issues
         }
 
-        if suppressedRuleNames.contains("all") {
+        let normalized = Set(suppressedRuleNames.map { $0.lowercased() })
+        if normalized.contains("all") {
             return []
         }
 
-        let normalized = Set(suppressedRuleNames.map { $0.lowercased() })
         return issues.filter { !normalized.contains($0.ruleName.lowercased()) }
     }
 

@@ -48,6 +48,15 @@ final class SuppressionParserTests: XCTestCase {
         XCTAssertTrue(SuppressionParser.suppressedRuleNames(in: source).isEmpty)
     }
 
+    func testIgnoresCommentDirectiveInsideStringLiteral() {
+        let source = """
+        let text = "// aianalyzer:disable LargeClass"
+        final class Demo {}
+        """
+
+        XCTAssertTrue(SuppressionParser.suppressedRuleNames(in: source).isEmpty)
+    }
+
     func testAllSuppressionFiltersEveryIssue() {
         let issues = [
             Issue(ruleName: "LargeClass", message: "large", severity: .warning),
@@ -55,5 +64,14 @@ final class SuppressionParserTests: XCTestCase {
         ]
 
         XCTAssertTrue(SuppressionParser.filter(issues, suppressedRuleNames: ["all"]).isEmpty)
+    }
+
+    func testAllSuppressionIsCaseInsensitive() {
+        let issues = [
+            Issue(ruleName: "LargeClass", message: "large", severity: .warning),
+            Issue(ruleName: "DataHeavyClass", message: "data", severity: .info)
+        ]
+
+        XCTAssertTrue(SuppressionParser.filter(issues, suppressedRuleNames: ["All"]).isEmpty)
     }
 }
