@@ -27,6 +27,7 @@ struct AnalyzerApp {
         let failOnWarning: Bool
         let failOnCritical: Bool
         let strict: Bool
+        let shouldShowHelp: Bool
         let inputPath: String
 
         var isJsonMode: Bool { outputFormat == .json }
@@ -44,6 +45,11 @@ struct AnalyzerApp {
     /// - emits per-file and summary reports
     static func main() async {
         let options = parseCLIArguments()
+        if options.shouldShowHelp {
+            print(usageText)
+            return
+        }
+
         let fullPath = URL(fileURLWithPath: options.inputPath).standardized.path
         
         var isDirectory: ObjCBool = false
@@ -239,7 +245,19 @@ struct AnalyzerApp {
         let strict = arguments.contains("--strict")
         let failOnWarning = arguments.contains("--fail-on-warning")
         let failOnCritical = arguments.contains("--fail-on-critical")
+        let shouldShowHelp = arguments.contains("--help") || arguments.contains("-h")
         var positional: [String] = []
+
+        if shouldShowHelp {
+            return CLIOptions(
+                outputFormat: outputFormat,
+                failOnWarning: failOnWarning,
+                failOnCritical: failOnCritical,
+                strict: strict,
+                shouldShowHelp: true,
+                inputPath: ""
+            )
+        }
 
         var index = 0
         while index < arguments.count {
@@ -274,9 +292,33 @@ struct AnalyzerApp {
             failOnWarning: failOnWarning,
             failOnCritical: failOnCritical,
             strict: strict,
+            shouldShowHelp: false,
             inputPath: inputPath
         )
     }
+
+    private static let usageText = """
+    Usage:
+      aianalyzer <path> [options]
+
+    Arguments:
+      <path>                    Swift file or project folder to analyze.
+
+    Options:
+      --format <console|json|xcode|sarif>
+                                Choose output format. Defaults to console.
+      --json                    Shortcut for --format json.
+      --xcode                   Shortcut for --format xcode.
+      --fail-on-critical        Exit 1 when critical issues are found.
+      --fail-on-warning         Exit 1 when warning or critical issues are found.
+      --strict                  Exit 1 when any issue is found.
+      -h, --help                Show this help message.
+
+    Examples:
+      aianalyzer Sources
+      aianalyzer MyApp --format sarif > aianalyzer.sarif
+      aianalyzer MyApp --format xcode --fail-on-critical
+    """
 
     private static func outputFormatValue(_ rawValue: String) -> OutputFormat {
         switch rawValue.lowercased() {
