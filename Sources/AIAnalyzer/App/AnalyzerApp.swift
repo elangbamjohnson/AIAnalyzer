@@ -11,13 +11,28 @@ import SwiftSyntax
 /// Command-line entry point that coordinates scanning, analysis, reporting, and AI suggestions.
 @main
 struct AnalyzerApp {
+    private enum OutputFormat {
+        case console
+        case json
+        case xcode
+        case sarif
+
+        var isMachineReadable: Bool {
+            self == .json || self == .sarif
+        }
+    }
+
     private struct CLIOptions {
-        let isJsonMode: Bool
-        let isXcodeMode: Bool
+        let outputFormat: OutputFormat
         let failOnWarning: Bool
         let failOnCritical: Bool
         let strict: Bool
         let inputPath: String
+
+        var isJsonMode: Bool { outputFormat == .json }
+        var isXcodeMode: Bool { outputFormat == .xcode }
+        var isSarifMode: Bool { outputFormat == .sarif }
+        var isMachineReadable: Bool { outputFormat.isMachineReadable }
     }
 
     /// Runs the full analyzer lifecycle:
@@ -51,7 +66,7 @@ struct AnalyzerApp {
             ? fullPath
             : URL(fileURLWithPath: fullPath).deletingLastPathComponent().path
 
-        EnvironmentFileLoader.apply(fromRootPath: rootPath, isJsonMode: options.isJsonMode)
+        EnvironmentFileLoader.apply(fromRootPath: rootPath, isJsonMode: options.isMachineReadable)
         
         let config = ConfigLoader.load(from: rootPath)
         
@@ -59,18 +74,18 @@ struct AnalyzerApp {
         let filePaths: [String]
         
         if isDirectory.boolValue {
-            if !options.isJsonMode && !options.isXcodeMode { print("📂 Scanning folder: \(fullPath)") }
+            if options.outputFormat == .console { print("📂 Scanning folder: \(fullPath)") }
             filePaths = FileScanner.getSwiftFiles(in: fullPath, ignoring: config.ignoreDirectories)
         } else {
             filePaths = [fullPath]
         }
         
         guard !filePaths.isEmpty else {
-            if !options.isJsonMode && !options.isXcodeMode { print("⚠️ No Swift files found.") }
+            if options.outputFormat == .console { print("⚠️ No Swift files found.") }
             exit(0)
         }
         
-        if !options.isJsonMode && !options.isXcodeMode { print("📊 Found \(filePaths.count) Swift files\n") }
+        if options.outputFormat == .console { print("📊 Found \(filePaths.count) Swift files\n") }
         
         // 4. Build rules from config
         var rules: [Rule] = []
@@ -149,7 +164,7 @@ struct AnalyzerApp {
                 summary.totalClasses += visitor.classes.count
                 summary.addIssues(issues)
                 
-                if options.isJsonMode {
+                if options.isMachineReadable {
                     // Map canonical rule-engine output to machine-readable reports.
                     for issue in issues {
                         allIssueReports.append(IssueReport(
@@ -196,6 +211,13 @@ struct AnalyzerApp {
             if let data = try? encoder.encode(allIssueReports), let jsonString = String(data: data, encoding: .utf8) {
                 print(jsonString)
             }
+        } else if options.isSarifMode {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let report = SarifReport.make(from: allIssueReports)
+            if let data = try? encoder.encode(report), let jsonString = String(data: data, encoding: .utf8) {
+                print(jsonString)
+            }
         } else {
             reporter.reportSummary(summary, fileIssueMap: fileIssueMap)
         }
@@ -213,22 +235,63 @@ struct AnalyzerApp {
     /// Parses command-line arguments and validates required positional input.
     private static func parseCLIArguments() -> CLIOptions {
         let arguments = Array(CommandLine.arguments.dropFirst())
-        let isJsonMode = arguments.contains("--json")
-        let isXcodeMode = arguments.contains("--xcode")
+        var outputFormat: OutputFormat = .console
         let strict = arguments.contains("--strict")
         let failOnWarning = arguments.contains("--fail-on-warning")
         let failOnCritical = arguments.contains("--fail-on-critical")
-        let positional = arguments.filter { !$0.hasPrefix("--") }
+        var positional: [String] = []
+
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+
+            switch argument {
+            case "--json":
+                outputFormat = .json
+            case "--xcode":
+                outputFormat = .xcode
+            case "--format":
+                guard index + 1 < arguments.count else {
+                    emitError("Missing value for --format", isJsonMode: false)
+                    exit(1)
+                }
+                outputFormat = outputFormatValue(arguments[index + 1])
+                index += 1
+            case "--strict", "--fail-on-warning", "--fail-on-critical":
+                break
+            default:
+                if !argument.hasPrefix("--") {
+                    positional.append(argument)
+                }
+            }
+
+            index += 1
+        }
 
         let inputPath = positional.first ?? "sample.swift"
         return CLIOptions(
-            isJsonMode: isJsonMode,
-            isXcodeMode: isXcodeMode,
+            outputFormat: outputFormat,
             failOnWarning: failOnWarning,
             failOnCritical: failOnCritical,
             strict: strict,
             inputPath: inputPath
         )
+    }
+
+    private static func outputFormatValue(_ rawValue: String) -> OutputFormat {
+        switch rawValue.lowercased() {
+        case "console":
+            return .console
+        case "json":
+            return .json
+        case "xcode":
+            return .xcode
+        case "sarif":
+            return .sarif
+        default:
+            emitError("Unsupported --format value: \(rawValue)", isJsonMode: false)
+            exit(1)
+        }
     }
 
     /// Emits errors to stderr in JSON mode to avoid corrupting machine-readable stdout.
@@ -525,7 +588,7 @@ private enum EnvironmentFileLoader {
         } else if providerLabel != "unset" {
             providerSource = "source: inherited from environment (not set in this file)"
         } else {
-            providerSource = "source: unset (AIConfiguration defaults to gemini when absent)"
+            providerSource = "source: unset (AIConfiguration defaults to local when absent)"
         }
 
         emitWarning(

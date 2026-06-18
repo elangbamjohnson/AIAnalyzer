@@ -193,6 +193,7 @@ Use JSON when another tool needs to consume the result.
 
 ```bash
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --json
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --format json
 ```
 
 Each issue is emitted as an `IssueReport`:
@@ -215,12 +216,44 @@ Important behavior:
 - File read errors are written to stderr.
 - Add `--fail-on-critical`, `--fail-on-warning`, or `--strict` when JSON is used as a CI quality gate.
 
+### SARIF Output
+
+Use SARIF when GitHub code scanning or another SARIF-compatible tool should consume the result.
+
+```bash
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --format sarif > aianalyzer.sarif
+```
+
+SARIF output includes:
+
+- Tool metadata for `AIAnalyzer`.
+- One SARIF rule descriptor per unique analyzer rule.
+- One SARIF result per finding.
+- Relative file path.
+- Start line when available, otherwise line `1`.
+- Severity mapped to SARIF levels: `info` -> `note`, `warning` -> `warning`, `critical` -> `error`.
+
+GitHub Actions upload example:
+
+```yaml
+- name: Run AIAnalyzer
+  run: swift run AIAnalyzer . --format sarif > aianalyzer.sarif
+
+- name: Upload SARIF
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: aianalyzer.sarif
+```
+
+SARIF mode disables AI suggestions and keeps stdout machine-readable. Diagnostics such as `.aianalyzer.env` loading warnings are written to stderr.
+
 ### Xcode Output
 
 Use Xcode mode when running the analyzer from a Run Script phase or a local script opened from Xcode.
 
 ```bash
 AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --xcode
+AI_ENABLED=false swift run AIAnalyzer /path/to/YourMacProject --format xcode
 ```
 
 The output uses this shape:
@@ -579,6 +612,8 @@ AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp --json --stri
 
 - `TESTING.md` covers test commands and visitor-focused troubleshooting.
 - `Project Roadmap.rtf` contains planning notes.
+- `docs/integrations/github-actions.md` shows GitHub Actions and SARIF setup.
+- `docs/distribution/homebrew.md` explains the Homebrew release path.
 
 ---
 

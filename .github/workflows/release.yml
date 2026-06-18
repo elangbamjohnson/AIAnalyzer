@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  macos-binary:
+    name: Build macOS binary
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Package binary
+        run: |
+          mkdir -p dist
+          cp .build/release/AIAnalyzer dist/aianalyzer
+          chmod +x dist/aianalyzer
+          cd dist
+          zip aianalyzer-macos-arm64.zip aianalyzer
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aianalyzer-macos-arm64
+          path: dist/aianalyzer-macos-arm64.zip
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/aianalyzer-macos-arm64.zip \
+            --title "$GITHUB_REF_NAME" \
+            --notes "AIAnalyzer $GITHUB_REF_NAME"
