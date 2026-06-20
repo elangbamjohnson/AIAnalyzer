@@ -3,6 +3,7 @@ class Aianalyzer < Formula
   homepage "https://github.com/elangbamjohnson/AIAnalyzer"
   url "https://github.com/elangbamjohnson/AIAnalyzer/releases/download/v__VERSION__/aianalyzer-macos-arm64.zip"
   sha256 "__SHA256__"
+  license "MIT"
 
   def install
     bin.install "aianalyzer"

@@ -738,6 +738,12 @@ AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp --json --stri
 
 ---
 
+## License
+
+AIAnalyzer is available under the MIT License. See `LICENSE` for details.
+
+---
+
 ## Ownership
 
 Project by Johnson Elangbam. Dependencies are governed by their own licenses.
