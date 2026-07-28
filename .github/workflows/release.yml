@@ -79,7 +79,8 @@ jobs:
 
       - name: Audit Homebrew formula
         run: |
-          brew audit --type=formula homebrew-tap/Formula/aianalyzer.rb || true
+          cd homebrew-tap
+          brew audit --formula aianalyzer
 
       - name: Commit and push Homebrew tap update
         run: |
