@@ -45,9 +45,17 @@ class ConfigLoader {
 
             // largeClass
             if let userLarge = userRules.largeClass {
-                var current = mergedRules.largeClass ?? AnalyzerConfig.RuleToggle()
+                var current = mergedRules.largeClass ?? AnalyzerConfig.LargeClassRuleConfig()
                 if let enabled = userLarge.enabled { current.enabled = enabled }
                 if let threshold = userLarge.threshold { current.threshold = threshold }
+                if let vcMethods = userLarge.vcMethods { current.vcMethods = vcMethods }
+                if let vcLines = userLarge.vcLines { current.vcLines = vcLines }
+                if let vmMethods = userLarge.vmMethods { current.vmMethods = vmMethods }
+                if let vmLines = userLarge.vmLines { current.vmLines = vmLines }
+                if let serviceMethods = userLarge.serviceMethods { current.serviceMethods = serviceMethods }
+                if let serviceLines = userLarge.serviceLines { current.serviceLines = serviceLines }
+                if let modelMethods = userLarge.modelMethods { current.modelMethods = modelMethods }
+                if let modelLines = userLarge.modelLines { current.modelLines = modelLines }
                 mergedRules.largeClass = current
             }
 

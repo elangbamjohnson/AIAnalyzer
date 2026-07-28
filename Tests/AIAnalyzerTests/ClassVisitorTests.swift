@@ -77,4 +77,32 @@ final class VisitorStructTests: XCTestCase {
         XCTAssertTrue(visitor.classes.contains { $0.name == "MyActor" && $0.methodCount == 1 })
         XCTAssertTrue(visitor.classes.contains { $0.name == "MyActor" && $0.methodCount == 1 })
     }
+
+    func testTypeClassification() {
+        let source = """
+        class DetailViewControllerDelegate {}
+        class DetailViewController {}
+        class CustomVC: UIViewController {}
+        class UserViewModel {}
+        class CustomVM: ObservableObject {}
+        class UserProfileService {}
+        class AccountManager {}
+        class ItemModel {}
+        """
+
+        let sourceFile = Parser.parse(source: source)
+        let visitor = ClassVisitor(viewMode: .all)
+        visitor.walk(sourceFile)
+
+        let classesByName = Dictionary(uniqueKeysWithValues: visitor.classes.map { ($0.name, $0.type) })
+
+        XCTAssertEqual(classesByName["DetailViewControllerDelegate"], .unknown)
+        XCTAssertEqual(classesByName["DetailViewController"], .viewController)
+        XCTAssertEqual(classesByName["CustomVC"], .viewController)
+        XCTAssertEqual(classesByName["UserViewModel"], .viewModel)
+        XCTAssertEqual(classesByName["CustomVM"], .viewModel)
+        XCTAssertEqual(classesByName["UserProfileService"], .service)
+        XCTAssertEqual(classesByName["AccountManager"], .service)
+        XCTAssertEqual(classesByName["ItemModel"], .model)
+    }
 }

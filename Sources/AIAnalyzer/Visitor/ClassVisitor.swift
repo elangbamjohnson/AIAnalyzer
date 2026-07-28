@@ -115,16 +115,17 @@ public class ClassVisitor: SyntaxVisitor {
             runningLine += memberLines
         }
         
-        // Determine the type based on naming conventions (unchanged)
-        let nameLower = name.lowercased()
+        let inheritedTypes = extractInheritedTypes(from: node)
         let type: ClassInfo.ClassType
-        if nameLower.contains("viewcontroller") {
+        if inheritedTypes.contains(where: { $0 == "UIViewController" || $0 == "NSViewController" || $0 == "UIView" || $0 == "NSView" }) ||
+            name.hasSuffix("ViewController") || name.hasSuffix("VC") {
             type = .viewController
-        } else if nameLower.contains("viewmodel") {
+        } else if inheritedTypes.contains(where: { $0 == "ObservableObject" }) ||
+                    name.hasSuffix("ViewModel") || name.hasSuffix("VM") {
             type = .viewModel
-        } else if nameLower.contains("service") || nameLower.contains("manager") {
+        } else if name.hasSuffix("Service") || name.hasSuffix("Manager") {
             type = .service
-        } else if nameLower.contains("model") {
+        } else if name.hasSuffix("Model") {
             type = .model
         } else {
             type = .unknown
@@ -145,5 +146,24 @@ public class ClassVisitor: SyntaxVisitor {
         )
         
         classes.append(info)
+    }
+    
+    private func extractInheritedTypes(from node: SyntaxProtocol) -> [String] {
+        let rawTypes: [String]?
+        if let classDecl = node.as(ClassDeclSyntax.self), let clause = classDecl.inheritanceClause {
+            rawTypes = clause.inheritedTypeCollection.map { $0.typeName.description.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+        } else if let structDecl = node.as(StructDeclSyntax.self), let clause = structDecl.inheritanceClause {
+            rawTypes = clause.inheritedTypeCollection.map { $0.typeName.description.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+        } else if let enumDecl = node.as(EnumDeclSyntax.self), let clause = enumDecl.inheritanceClause {
+            rawTypes = clause.inheritedTypeCollection.map { $0.typeName.description.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+        } else if let actorDecl = node.as(ActorDeclSyntax.self), let clause = actorDecl.inheritanceClause {
+            rawTypes = clause.inheritedTypeCollection.map { $0.typeName.description.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+        } else if let extDecl = node.as(ExtensionDeclSyntax.self), let clause = extDecl.inheritanceClause {
+            rawTypes = clause.inheritedTypeCollection.map { $0.typeName.description.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+        } else {
+            rawTypes = nil
+        }
+        
+        return rawTypes ?? []
     }
 }

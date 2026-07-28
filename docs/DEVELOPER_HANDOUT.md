@@ -56,8 +56,10 @@ flowchart TD
     end
 
     subgraph "🔧 AIAnalyzer Tool"
-        CLI["CLI Entry Point<br/>(AnalyzerApp.swift)"]
+        CLI["CLI Entry Point<br/>(AnalyzerCommand.swift)"]
         Config["Configuration<br/>(.aianalyzer.json + .aianalyzer.env)"]
+        Env["Environment Resolver<br/>(EnvironmentResolver.swift)"]
+        Orchestrator["Orchestrator<br/>(AnalysisOrchestrator.swift)"]
         Scanner["File Scanner<br/>(FileScanner.swift)"]
         Parser["Swift Parser<br/>(SwiftParser library)"]
         Visitor["Class Visitor<br/>(ClassVisitor.swift)"]
@@ -122,8 +124,12 @@ Here's every folder in the project and what lives inside it:
 AIAnalyzer/
 ├── Sources/AIAnalyzer/           ← All production source code
 │   ├── App/                      ← CLI entry point & input validation
-│   │   ├── AnalyzerApp.swift     ← @main — the starting point of everything
+│   │   ├── AnalyzerCommand.swift ← @main — ParsableCommand entry point
 │   │   └── InputPathValidator.swift
+│   ├── Environment/              ← Environment variable resolution
+│   │   └── EnvironmentResolver.swift ← Loads .aianalyzer.env from scan root
+│   ├── Orchestration/            ← Pipeline orchestration & output options
+│   │   └── AnalysisOrchestrator.swift ← Coordinates analysis & reporting
 │   │
 │   ├── AI/                       ← Everything related to AI suggestions
 │   │   ├── AIProvider.swift      ← Protocol that all AI providers implement
@@ -270,7 +276,7 @@ Let's trace what happens when you run `aianalyzer /path/to/project`:
 
 ### Step 1: CLI Argument Parsing
 
-[AnalyzerApp.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/App/AnalyzerApp.swift) is the `@main` entry point. It parses:
+[AnalyzerCommand.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/App/AnalyzerCommand.swift) is the `@main` entry point using `swift-argument-parser`. It declares:
 
 - **Positional argument**: the file/folder path (defaults to `sample.swift` if omitted)
 - **Output format**: `--format console|json|xcode|sarif` or shortcuts like `--json`, `--xcode`
@@ -283,7 +289,7 @@ Let's trace what happens when you run `aianalyzer /path/to/project`:
 
 ### Step 3: Load Environment
 
-The `EnvironmentFileLoader` (defined inside [AnalyzerApp.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/App/AnalyzerApp.swift#L573-L694)) walks **upward** from the scan root looking for `.aianalyzer.env`. If multiple are found at different levels, only the **outermost** (closest to filesystem root) is used — this prevents nested configs from conflicting.
+[EnvironmentResolver.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/Environment/EnvironmentResolver.swift) walks **upward** from the scan root looking for `.aianalyzer.env`. If multiple are found at different levels, only the **outermost** (closest to filesystem root) is used — this prevents nested configs from conflicting.
 
 The `.env` file sets environment variables like:
 ```
@@ -682,7 +688,7 @@ After the release, you update the Homebrew formula in the separate `elangbamjohn
 4. Add a config toggle in [AnalyzerConfig.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/Models/AnalyzerConfig.swift) if it should be user-configurable.
 5. Set default values in [AnalyzerConfig+Default.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/Extension/AnalyzerConfig+Default.swift).
 6. Wire config loading in [ConfigLoader.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/Utils/ConfigLoader.swift).
-7. Register the rule in [AnalyzerApp.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/App/AnalyzerApp.swift) (look for the block around lines 97-124).
+7. Register the rule in [AnalysisOrchestrator.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/Orchestration/AnalysisOrchestrator.swift).
 8. Write tests in [Tests/AIAnalyzerTests/](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Tests/AIAnalyzerTests).
 9. Choose severity carefully — only ⚠️ and 🔴 get AI suggestions.
 
@@ -691,15 +697,15 @@ After the release, you update the Homebrew formula in the separate `elangbamjohn
 1. Create a new file in [Sources/AIAnalyzer/AI/](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/AI) — conform to [AIProvider](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/AI/AIProvider.swift).
 2. Implement `func suggest(for context: AIRequestContext) async throws -> AISuggestion`.
 3. Add any needed config to [AIConstants.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/AI/AIConstants.swift) and [AIConfiguration.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/AI/AIConfiguration.swift).
-4. Wire provider construction in the `buildAISuggester` method of [AnalyzerApp.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/App/AnalyzerApp.swift#L414-L476).
+4. Wire provider construction in [AISuggesterFactory.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/AI/AISuggesterFactory.swift).
 5. Add tests using stubs from [TestAIProviderStubs.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Tests/AIAnalyzerTests/TestAIProviderStubs.swift).
 
 ### Adding a New Output Format
 
 1. Create a formatter/reporter in [Sources/AIAnalyzer/Reporting/](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/Reporting).
-2. Add the format to `AnalyzerApp.OutputFormat` enum.
-3. Add parsing in `parseCLIArguments()` and `outputFormatValue()`.
-4. Add emission in `AnalyzerApp.main()`.
+2. Add the format to `OutputFormat` in [AnalysisOrchestrator.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/Orchestration/AnalysisOrchestrator.swift).
+3. Declare option in [AnalyzerCommand.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/App/AnalyzerCommand.swift).
+4. Add emission in [AnalysisOrchestrator.swift](file:///Users/johnsonelangbam/Projects/AIAnalyzer/Sources/AIAnalyzer/Orchestration/AnalysisOrchestrator.swift).
 
 ---
 
@@ -707,7 +713,7 @@ After the release, you update the Homebrew formula in the separate `elangbamjohn
 
 These are choices that shaped the codebase. Understanding them prevents you from fighting the architecture:
 
-1. **One external dependency only** — The project deliberately avoids pulling in argument parsers, networking libraries, or logging frameworks. This keeps builds fast and the tool portable.
+1. **Minimal external dependencies** — The project relies on official Apple packages (`SwiftSyntax` and `swift-argument-parser`) to keep builds fast and reliable.
 
 2. **Name-based type classification** — Types are categorized by their name (e.g., contains "ViewModel" → classified as ViewModel). This avoids the complexity of full type resolution.
 

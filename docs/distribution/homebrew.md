@@ -16,9 +16,18 @@ brew tap elangbamjohnson/tap
 brew install aianalyzer
 ```
 
-## Release Steps
+## Automated Release Workflow
 
-1. Tag a release:
+Releases and Homebrew tap formula updates are automated via GitHub Actions (`.github/workflows/release.yml`).
+
+### Prerequisites
+Ensure the GitHub secret `HOMEBREW_TAP_TOKEN` is configured in `elangbamjohnson/AIAnalyzer`:
+- Create a Personal Access Token (PAT) with write access to `elangbamjohnson/homebrew-tap` (Fine-grained PAT with **Contents: Read and write** on `homebrew-tap`, or Classic PAT with `repo` scope).
+- Add it under **Settings > Secrets and variables > Actions** as `HOMEBREW_TAP_TOKEN`.
+
+### Triggering a Release
+
+1. Tag and push a release:
 
    ```bash
    git checkout main
@@ -29,41 +38,14 @@ brew install aianalyzer
    git push origin v0.1.2
    ```
 
-2. Wait for the Release workflow to upload `aianalyzer-macos-arm64.zip`.
-
-3. Download the asset and compute its SHA-256:
-
-   ```bash
-   curl -L -o /tmp/aianalyzer-macos-arm64.zip \
-     https://github.com/elangbamjohnson/AIAnalyzer/releases/download/v0.1.2/aianalyzer-macos-arm64.zip
-
-   shasum -a 256 /tmp/aianalyzer-macos-arm64.zip
-   ```
-
-4. Copy `packaging/homebrew/aianalyzer.rb.template` into a Homebrew tap repository as `Formula/aianalyzer.rb`.
-
-5. Replace:
-
-   - `__VERSION__`
-   - `__SHA256__`
-
-6. Test locally:
-
-   ```bash
-   brew fetch --force elangbamjohnson/tap/aianalyzer
-   brew reinstall elangbamjohnson/tap/aianalyzer
-   aianalyzer --help
-   brew test elangbamjohnson/tap/aianalyzer
-   ```
-
-7. Commit and push the formula change from the tap repository:
-
-   ```bash
-   cd "$(brew --repo)/Library/Taps/elangbamjohnson/homebrew-tap"
-   git add Formula/aianalyzer.rb
-   git commit -m "Update AIAnalyzer formula to v0.1.2"
-   git push origin main
-   ```
+2. The Release workflow will automatically:
+   - Build `aianalyzer-macos-arm64.zip`.
+   - Create the GitHub release and upload the zip asset.
+   - Compute the asset's SHA256 checksum.
+   - Checkout `elangbamjohnson/homebrew-tap`.
+   - Update `Formula/aianalyzer.rb` with the new URL and SHA256.
+   - Run `brew audit` on the updated formula.
+   - Commit and push directly to `main` in `elangbamjohnson/homebrew-tap`.
 
 ## Public Verification
 

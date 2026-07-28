@@ -14,9 +14,17 @@ extension AnalyzerConfig {
                 "DerivedData", "Pods", "Build", "Carthage"
             ],
             rules: RuleConfig(
-                largeClass: RuleToggle(
+                largeClass: LargeClassRuleConfig(
                     enabled: true,
-                    threshold: RuleConstants.largeClassThreshold
+                    threshold: RuleConstants.largeClassThreshold,
+                    vcMethods: RuleConstants.LargeClass.vcMethods,
+                    vcLines: RuleConstants.LargeClass.vcLines,
+                    vmMethods: RuleConstants.LargeClass.vmMethods,
+                    vmLines: RuleConstants.LargeClass.vmLines,
+                    serviceMethods: RuleConstants.LargeClass.serviceMethods,
+                    serviceLines: RuleConstants.LargeClass.serviceLines,
+                    modelMethods: RuleConstants.LargeClass.modelMethods,
+                    modelLines: RuleConstants.LargeClass.modelLines
                 ),
                 highMethodDensity: RuleToggle(
                     enabled: true,

@@ -30,6 +30,12 @@ jobs:
           cd dist
           zip aianalyzer-macos-arm64.zip aianalyzer
 
+      - name: Compute SHA256
+        id: shasum
+        run: |
+          SHA256=$(shasum -a 256 dist/aianalyzer-macos-arm64.zip | awk '{print $1}')
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -44,3 +50,46 @@ jobs:
             dist/aianalyzer-macos-arm64.zip \
             --title "$GITHUB_REF_NAME" \
             --notes "AIAnalyzer $GITHUB_REF_NAME"
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: elangbamjohnson/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update Homebrew formula
+        run: |
+          FORMULA_FILE="homebrew-tap/Formula/aianalyzer.rb"
+          NEW_URL="https://github.com/elangbamjohnson/AIAnalyzer/releases/download/${GITHUB_REF_NAME}/aianalyzer-macos-arm64.zip"
+          NEW_SHA256="${{ steps.shasum.outputs.sha256 }}"
+          
+          python3 -c "
+          import re
+          path = '${FORMULA_FILE}'
+          url = '${NEW_URL}'
+          sha = '${NEW_SHA256}'
+          with open(path, 'r') as f:
+              content = f.read()
+          content = re.sub(r'url \".*\"', f'url \"{url}\"', content)
+          content = re.sub(r'sha256 \".*\"', f'sha256 \"{sha}\"', content)
+          with open(path, 'w') as f:
+              f.write(content)
+          "
+
+      - name: Audit Homebrew formula
+        run: |
+          brew audit --type=formula homebrew-tap/Formula/aianalyzer.rb || true
+
+      - name: Commit and push Homebrew tap update
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/aianalyzer.rb
+          if git diff --staged --quiet; then
+            echo "No formula changes to commit."
+          else
+            git commit -m "Update AIAnalyzer formula to ${GITHUB_REF_NAME}"
+            git push origin main
+          fi

@@ -240,22 +240,12 @@ git tag -a v0.1.2 -m "AIAnalyzer v0.1.2"
 git push origin v0.1.2
 ```
 
-After GitHub Actions creates the release asset:
-
-```bash
-curl -L -o /tmp/aianalyzer-macos-arm64.zip \
-  https://github.com/elangbamjohnson/AIAnalyzer/releases/download/v0.1.2/aianalyzer-macos-arm64.zip
-
-shasum -a 256 /tmp/aianalyzer-macos-arm64.zip
-```
-
-Then update the Homebrew formula:
-
-1. Change the formula URL to the new `v*` release.
-2. Replace `sha256` with the new checksum.
-3. Run `brew fetch --force elangbamjohnson/tap/aianalyzer`.
-4. Run `brew test elangbamjohnson/tap/aianalyzer`.
-5. Commit and push the formula in `elangbamjohnson/homebrew-tap`.
+Publishing is fully automated via GitHub Actions (`release.yml`). Once the `v*` tag is pushed:
+1. GitHub Actions builds the release binary and packages `aianalyzer-macos-arm64.zip`.
+2. Creates the GitHub release with the asset attached.
+3. Computes the SHA256 checksum of the asset.
+4. Checks out `elangbamjohnson/homebrew-tap` using `HOMEBREW_TAP_TOKEN`.
+5. Updates `url` and `sha256` in `Formula/aianalyzer.rb` and commits the changes directly to `main`.
 
 ### Public Install Verification
 
@@ -535,7 +525,15 @@ These values are unioned with the defaults:
   "rules": {
     "largeClass": {
       "enabled": true,
-      "threshold": 18
+      "threshold": 18,
+      "vcMethods": 30,
+      "vcLines": 500,
+      "vmMethods": 25,
+      "vmLines": 350,
+      "serviceMethods": 20,
+      "serviceLines": 300,
+      "modelMethods": 15,
+      "modelLines": 200
     },
     "highMethodDensity": {
       "enabled": true,
@@ -675,7 +673,7 @@ AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp --json --stri
 2. Add default configuration in `AnalyzerConfig+Default.swift` if it should be configurable.
 3. Add a property to `AnalyzerConfig.RuleConfig` if it needs a JSON toggle.
 4. Merge the user config in `ConfigLoader`.
-5. Register the rule in `AnalyzerApp.main()`.
+5. Register the rule in `AnalysisOrchestrator.run()`.
 6. Add focused tests under `Tests/AIAnalyzerTests/`.
 7. Decide the severity carefully. Only warning and critical issues are eligible for AI suggestions.
 
@@ -683,16 +681,16 @@ AI_ENABLED=false swift run AIAnalyzer /Users/you/Projects/MyMacApp --json --stri
 
 1. Create a type under `Sources/AIAnalyzer/AI/` that conforms to `AIProvider`.
 2. Add provider configuration to `AIConstants` and `AIConfiguration` if needed.
-3. Wire provider construction in `AnalyzerApp.buildAISuggester`.
+3. Wire provider construction in `AISuggesterFactory.build`.
 4. Add unit tests using test doubles from `Tests/AIAnalyzerTests/TestAIProviderStubs.swift`.
 
 ### Add A New Output Format
 
 1. Add a formatter or reporter under `Sources/AIAnalyzer/Reporting/`.
 2. Use `Reporter` for streaming human/Xcode output, or an encodable report model for machine-readable formats like SARIF.
-3. Add the format to `AnalyzerApp.OutputFormat`.
-4. Parse the format in `AnalyzerApp.parseCLIArguments()`.
-5. Emit the format in `AnalyzerApp.main()`.
+3. Add the format to `OutputFormat` in `AnalysisOrchestrator.swift`.
+4. Declare the option in `AnalyzerCommand.swift`.
+5. Emit the format in `AnalysisOrchestrator.swift`.
 6. Add tests for formatting if the output is machine-consumed.
 
 ---

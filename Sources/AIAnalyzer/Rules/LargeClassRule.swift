@@ -13,11 +13,36 @@ public struct LargeClassRule: Rule {
     
     /// The maximum allowed number of methods before a violation is triggered.
     private let threshold: Int
+    private let vcMethods: Int
+    private let vcLines: Int
+    private let vmMethods: Int
+    private let vmLines: Int
+    private let serviceMethods: Int
+    private let serviceLines: Int
+    private let modelMethods: Int
+    private let modelLines: Int
     
-    /// Initializes the rule with a custom or default threshold.
-    /// - Parameter threshold: The method count limit (defaults to `RuleConstants.largeClassThreshold`).
-    public init(threshold: Int = RuleConstants.largeClassThreshold) {
+    /// Initializes the rule with custom or default thresholds.
+    public init(
+        threshold: Int = RuleConstants.largeClassThreshold,
+        vcMethods: Int = RuleConstants.LargeClass.vcMethods,
+        vcLines: Int = RuleConstants.LargeClass.vcLines,
+        vmMethods: Int = RuleConstants.LargeClass.vmMethods,
+        vmLines: Int = RuleConstants.LargeClass.vmLines,
+        serviceMethods: Int = RuleConstants.LargeClass.serviceMethods,
+        serviceLines: Int = RuleConstants.LargeClass.serviceLines,
+        modelMethods: Int = RuleConstants.LargeClass.modelMethods,
+        modelLines: Int = RuleConstants.LargeClass.modelLines
+    ) {
         self.threshold = threshold
+        self.vcMethods = vcMethods
+        self.vcLines = vcLines
+        self.vmMethods = vmMethods
+        self.vmLines = vmLines
+        self.serviceMethods = serviceMethods
+        self.serviceLines = serviceLines
+        self.modelMethods = modelMethods
+        self.modelLines = modelLines
     }
     
     /// Flags classes that exceed context-aware thresholds for methods or lines.
@@ -30,17 +55,17 @@ public struct LargeClassRule: Rule {
         
         switch classInfo.type {
         case .viewController:
-            methodThreshold = RuleConstants.LargeClass.vcMethods
-            lineThreshold = RuleConstants.LargeClass.vcLines
+            methodThreshold = vcMethods
+            lineThreshold = vcLines
         case .viewModel:
-            methodThreshold = RuleConstants.LargeClass.vmMethods
-            lineThreshold = RuleConstants.LargeClass.vmLines
+            methodThreshold = vmMethods
+            lineThreshold = vmLines
         case .service:
-            methodThreshold = RuleConstants.LargeClass.serviceMethods
-            lineThreshold = RuleConstants.LargeClass.serviceLines
+            methodThreshold = serviceMethods
+            lineThreshold = serviceLines
         case .model:
-            methodThreshold = RuleConstants.LargeClass.modelMethods
-            lineThreshold = RuleConstants.LargeClass.modelLines
+            methodThreshold = modelMethods
+            lineThreshold = modelLines
         case .unknown:
             methodThreshold = threshold
             lineThreshold = RuleConstants.LargeClass.defaultLines
