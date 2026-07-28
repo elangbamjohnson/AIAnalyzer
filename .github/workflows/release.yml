@@ -79,8 +79,9 @@ jobs:
 
       - name: Audit Homebrew formula
         run: |
-          cd homebrew-tap
-          brew audit --formula aianalyzer
+          mkdir -p $(brew --repo)/Library/Taps/elangbamjohnson
+          ln -s $PWD/homebrew-tap $(brew --repo)/Library/Taps/elangbamjohnson/homebrew-tap
+          brew audit --formula elangbamjohnson/tap/aianalyzer
 
       - name: Commit and push Homebrew tap update
         run: |
